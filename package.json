@@ -1,0 +1,24 @@
+{
+  "name": "hollow-stars",
+  "version": "0.1.0",
+  "description": "Hollow Stars — a 4-player co-op space-opera action game for the browser (vertical slice).",
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build.js",
+    "start": "node tools/build.js && node server/server.js",
+    "serve": "node server/server.js",
+    "soak": "node tools/soak.js"
+  },
+  "dependencies": {
+    "three": "^0.169.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

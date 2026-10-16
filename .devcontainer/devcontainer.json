@@ -1,0 +1,10 @@
+{
+  "name": "Hollow Stars server",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postCreateCommand": "npm install",
+  "postAttachCommand": "npm start",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Hollow Stars", "onAutoForward": "openBrowser" }
+  }
+}

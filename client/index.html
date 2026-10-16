@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hollow Stars</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- ======================= MAIN MENU ======================= -->
+<div id="menu" class="screen">
+  <div class="menu-bg"></div>
+  <div class="menu-card">
+    <div class="logo">
+      <div class="logo-top">HOLLOW</div>
+      <div class="logo-bot">STARS</div>
+      <div class="logo-sub">Dusk Varo, the Outer Reach</div>
+    </div>
+    <p class="lede">The Concordance takes its tithe from every world in the Reach. On Dusk Varo, the people of Khet have stopped paying. Someone has to make the garrison bleed.</p>
+    <label class="field"><span>Callsign</span><input id="m-name" maxlength="16" placeholder="Drifter" autocomplete="off" /></label>
+    <div class="field"><span>Class</span><div id="class-grid" class="class-grid"></div><div id="class-info" class="class-info"></div></div>
+    <div class="mode-row">
+      <button class="mode active" id="mode-host"><b>Host a crew</b><small>Your browser runs the game; friends join with a code</small></button>
+      <button class="mode" id="mode-join"><b>Join a crew</b><small>Enter a friend's crew code</small></button>
+      <button class="mode" id="mode-solo"><b>Solo</b><small>Offline, just you</small></button>
+      <button class="mode" id="mode-online"><b>Dedicated server</b><small>Connect to a Hollow Stars server</small></button>
+    </div>
+    <div id="join-fields" class="hidden">
+      <label class="field"><span>Crew code</span><input id="m-code" maxlength="8" placeholder="e.g. K7QXM" autocomplete="off" class="code-in" /></label>
+    </div>
+    <div id="online-fields" class="hidden">
+      <label class="field"><span>Server</span><input id="m-server" placeholder="ws://localhost:8080" autocomplete="off" /></label>
+      <label class="field"><span>Crew room</span><input id="m-room" maxlength="24" placeholder="public" autocomplete="off" /></label>
+      <div id="rooms" class="rooms"></div>
+    </div>
+    <details id="p2p-adv" class="adv"><summary>Connection settings</summary>
+      <label class="field"><span>Signaling relay (optional)</span><input id="m-relay" placeholder="Public trackers (default), or wss://your-server/relay" autocomplete="off" /></label>
+      <p class="muted small">Host and join use peer-to-peer WebRTC. Public BitTorrent trackers introduce the players; after that, game traffic goes directly between browsers. If friends can't connect, run the included server and use its <code>/relay</code> address here.</p>
+    </details>
+    <button id="m-play" class="cta">Make planetfall</button>
+    <div id="m-error" class="err"></div>
+    <div class="controls-mini">
+      <span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> aim</span><span><kbd>LMB</kbd> fire / swing</span><span><kbd>RMB</kbd> aim / deflect</span>
+      <span><kbd>Q</kbd><kbd>F</kbd><kbd>X</kbd> class abilities</span>
+      <span><kbd>G</kbd> throwable</span><span><kbd>C</kbd> crouch</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> hold to leap</span>
+      <span><kbd>E</kbd> interact</span><span><kbd>H</kbd> medpack</span><span><kbd>V</kbd> 1st/3rd person</span><span><kbd>T</kbd> ping</span>
+      <span><kbd>Tab</kbd> mission</span><span><kbd>Enter</kbd> chat</span>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= LOADING ======================= -->
+<div id="loading" class="screen hidden"><div class="load-inner"><div class="spinner"></div><div id="load-text">Plotting a course to Dusk Varo…</div></div></div>
+
+<!-- ======================= HUD ======================= -->
+<div id="hud" class="hidden">
+  <div id="vignette"></div>
+  <div id="dmg-dirs"></div>
+  <div id="markers"></div>
+  <div id="bubbles"></div>
+
+  <div id="compass"><div id="compass-strip"></div><div id="compass-marks"></div><div class="compass-tick"></div></div>
+
+  <div id="lefttop"><div id="party"></div><button id="crew-chip" class="hidden" title="Copy the invite link"></button></div>
+
+  <div id="tracker">
+    <div id="alarm-banner" class="hidden">GARRISON ALARM</div>
+    <div id="cam-banner" class="hidden">CAMERAS LOOPED</div>
+    <div id="mission-box"></div>
+  </div>
+
+  <div id="crosshair"><div class="ch ch-dot"></div><div class="ch ch-ring"></div></div>
+  <div id="hitmark"></div>
+  <div id="detect"></div>
+  <div id="prompt" class="hidden"><div class="key">E</div><div id="prompt-text"></div><svg id="prompt-ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15" /></svg></div>
+
+  <div id="notes"></div>
+  <div id="big-msg" class="hidden"></div>
+
+  <div id="vitals">
+    <div class="bar-row"><span class="lbl">Health</span><div class="bar hp"><div id="bar-hp"></div><div id="bar-sh"></div></div><span id="num-hp" class="num">100</span></div>
+    <div class="bar-row" id="row-focus"><span class="lbl">Focus</span><div class="bar fo"><div id="bar-fo"></div></div><span id="num-fo" class="num">100</span></div>
+    <div id="powers"></div>
+  </div>
+  <div id="stealth"><span id="wanted" class="hidden">Wanted</span><div id="eye"><svg viewBox="0 0 40 24"><path d="M2 12 Q20 -4 38 12 Q20 28 2 12Z"/><circle cx="20" cy="12" r="5"/></svg></div><div id="vis-label">Hidden</div></div>
+
+  <div id="loadout">
+    <div id="credits"><span class="cr-ic">◈</span><span id="num-cr">0</span></div>
+    <div class="slot on" id="slot-main"><small id="cls-name">Soldier</small><b id="wpn-name">K-9 assault rifle</b><div class="heat" id="heat-wrap"><div id="bar-heat"></div></div><div class="blade-ic hidden" id="blade-ic"></div></div>
+    <div class="cons"><span><kbd>G</kbd> <span id="lbl-gr">Charges</span> <b id="num-gr">0</b></span><span><kbd>H</kbd> <span id="lbl-md">Medpacks</span> <b id="num-md">0</b></span></div>
+  </div>
+
+  <div id="chat"><div id="chat-log"></div><input id="chat-in" class="hidden" maxlength="140" placeholder="Say something to your crew…" /></div>
+
+  <div id="downed" class="hidden"><div class="dn-title">You are down</div><div id="dn-timer"></div><div class="dn-sub">A crewmate can revive you — hold <kbd>E</kbd> next to you.</div></div>
+  <div id="speedo" class="hidden"><div id="spd-num">0</div><small>km/h</small><div class="spd-help"><kbd>W</kbd>/<kbd>S</kbd> throttle · mouse steer · <kbd>Shift</kbd> boost · <kbd>Space</kbd> hop · <kbd>LMB</kbd> cannons · <kbd>E</kbd> dismount</div></div>
+</div>
+
+<!-- ======================= MODALS ======================= -->
+<div id="modal" class="hidden"><div class="modal-card"><button class="x" id="modal-x">✕</button><div id="modal-body"></div></div></div>
+
+<div id="pause" class="screen hidden">
+  <div class="menu-card pause-card">
+    <h2>Paused</h2>
+    <p class="muted" id="pause-room"></p>
+    <div id="invite" class="invite hidden"><div><small>Crew code</small><b id="invite-code"></b></div><button class="ghost" id="invite-copy">Copy invite link</button><input id="invite-link" readonly /></div>
+    <div class="settings">
+      <label>Mouse sensitivity <input type="range" id="s-sens" min="0.2" max="3" step="0.05" value="1" /></label>
+      <label>Field of view <input type="range" id="s-fov" min="60" max="100" step="1" value="75" /></label>
+      <label>Volume <input type="range" id="s-vol" min="0" max="1" step="0.05" value="0.7" /></label>
+      <label class="chk"><input type="checkbox" id="s-bloom" checked /> Bloom glow</label>
+      <label class="chk"><input type="checkbox" id="s-shadows" checked /> Shadows</label>
+      <label class="chk"><input type="checkbox" id="s-ao" checked /> Ambient occlusion (soft contact shadows)</label>
+      <label class="chk"><input type="checkbox" id="s-invert" /> Invert mouse Y</label>
+    </div>
+    <button class="cta" id="p-resume">Resume</button>
+    <button class="ghost" id="p-leave">Leave planet</button>
+    <div class="controls-mini">
+      <span><kbd>WASD</kbd> move</span><span><kbd>LMB</kbd> fire / swing</span><span><kbd>RMB</kbd> aim / deflect</span><span><kbd>Q</kbd><kbd>F</kbd><kbd>X</kbd> abilities</span><span><kbd>G</kbd> throwable</span>
+      <span><kbd>C</kbd> crouch</span><span><kbd>Space</kbd> hold: leap</span><span><kbd>E</kbd> interact</span><span><kbd>H</kbd> medpack</span>
+      <span><kbd>V</kbd> camera</span><span><kbd>T</kbd> ping</span><span><kbd>Tab</kbd> mission</span><span><kbd>Enter</kbd> chat</span>
+    </div>
+  </div>
+</div>
+<div id="clicktoplay" class="hidden">Click to take control</div>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>
