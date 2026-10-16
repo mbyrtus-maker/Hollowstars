@@ -22,6 +22,7 @@ export class LocalPlayer {
     this.ranged = ['blaster', 'pistols', 'pistol'].includes(this.weapon);
     this.tp = 1;
     this.shotSide = 1;
+    this.drawn = false;
     this.firstPerson = false;
     this.speed = 0;
     this.swingCount = 0;
@@ -50,6 +51,7 @@ export class LocalPlayer {
       this.vehicleId = id;
       this.vehicle = { x: s[0], y: s[1], z: s[2], yaw: s[3], vx: s[4], vy: 0, vz: s[5], onGround: false };
       this.crouch = false;
+      this.drawn = false;
       this.yaw = s[3];
     } else { this.vehicleId = 0; this.vehicle = null; this.vehicleState = null; }
   }
@@ -86,6 +88,7 @@ export class LocalPlayer {
     }
 
     // ---------------- on foot
+    if (input.hit('KeyR') || (input.hit('Digit1') && !this.drawn)) { this.drawn = !this.drawn; act.draw = this.drawn ? 'draw' : 'holster'; }
     if (input.hit('KeyC') || input.hit('ControlLeft')) {
       if (this.crouch) { if (canStand(this.world, b.x, b.y, b.z, b.r, PLAYER.height)) this.crouch = false; }
       else this.crouch = true;
@@ -94,8 +97,9 @@ export class LocalPlayer {
     const rt = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
     this.sprint = (input.down('ShiftLeft') || input.down('ShiftRight')) && fw > 0 && !this.crouch;
     if (this.sprint && this.crouch) this.crouch = false;
-    this.blocking = this.weapon === 'blade' && input.mouse.r && !this.downed;
-    this.aiming = this.ranged && input.mouse.r && !this.downed;
+    this.blocking = this.drawn && this.weapon === 'blade' && input.mouse.r && !this.downed;
+    this.aiming = this.drawn && this.ranged && input.mouse.r && !this.downed;
+    if (!this.drawn && (input.mouse.lPressed || input.mouse.rPressed) && !this.downed) act.needDraw = true;
     if (this.sprint) { this.aiming = false; }
     let spd = this.crouch ? PLAYER.crouchSpeed : this.sprint ? PLAYER.sprint : PLAYER.walk;
     if (this.blocking) spd = Math.min(spd, PLAYER.blockSpeed);
@@ -142,7 +146,7 @@ export class LocalPlayer {
 
     // ---------------- actions
     if (!this.downed) {
-      if (this.ranged && input.mouse.l) {
+      if (this.drawn && this.ranged && input.mouse.l) {
         const cyc = pv && pv.up && pv.up.includes('cyclic');
         const sup = pv && pv.ab && pv.ab.q && this.cls === 'soldier' && pv.ab.q[2] > 0;
         const interval = WEAPONS[this.weapon].fireInterval * (cyc ? 0.65 : 1) * (sup ? 0.55 : 1);
@@ -153,7 +157,7 @@ export class LocalPlayer {
           this.recoil = 1;
         }
       }
-      if ((this.weapon === 'blade' || this.weapon === 'knives') && input.mouse.lPressed && this.time - this.lastSwing > WEAPONS[this.weapon].swingTime * 0.9) {
+      if (this.drawn && (this.weapon === 'blade' || this.weapon === 'knives') && input.mouse.lPressed && this.time - this.lastSwing > WEAPONS[this.weapon].swingTime * 0.9) {
         this.lastSwing = this.time;
         this.swingCount = (this.swingCount + 1) % 1000;
         act.melee = true;
@@ -162,6 +166,7 @@ export class LocalPlayer {
       for (const [code, k] of [['KeyQ', 'q'], ['KeyF', 'f'], ['KeyX', 'x']]) {
         if (!input.hit(code) || !this.C.abilities[k]) continue;
         act.ab = k;
+        if ((this.C.abilities[k].id === 'execute' || this.C.abilities[k].id === 'fan') && !this.drawn) { this.drawn = true; act.draw = 'draw'; }
         // The dodge roll is movement, so it is predicted here
         if (this.C.abilities[k].id === 'roll' && pv && pv.ab && pv.ab[k] && pv.ab[k][0] <= 0) {
           let rx = wx, rz = wz;
@@ -179,6 +184,7 @@ export class LocalPlayer {
     if (this.crouch || (this.leapCharge > 0.1) || this.rollT > 0) fl |= F.CROUCH;
     if (this.blocking) fl |= F.BLOCK;
     if (this.weapon === 'blade' || this.weapon === 'knives') fl |= F.BLADE;
+    if (this.drawn) fl |= F.DRAWN;
     if (this.downed) fl |= F.DOWNED;
     if (!b.onGround) fl |= F.AIR;
     if (pv && pv.shr > 0) fl |= F.SHROUD;
@@ -192,6 +198,7 @@ export class LocalPlayer {
     if (this.sprint) f |= 2;
     if (this.blocking) f |= 4;
     if (b.onGround) f |= 8;
+    if (this.drawn && !this.vehicle) f |= 16;
     const m = { t: 'in', tp: this.tp, p: [r3(b.x), r3(b.y), r3(b.z)], v: [r3(b.vx), r3(b.vy), r3(b.vz)], yw: r3(this.yaw), pt: r3(this.pitch), f, w: this.weapon === 'blade' ? 1 : 0 };
     if (this.vehicle) { const s = this.vehicle; m.vh = [r3(s.x), r3(s.y), r3(s.z), r3(s.yaw), r3(s.vx), r3(s.vz)]; }
     return m;
@@ -270,7 +277,7 @@ export class ViewModel {
     this.lastSwing = 0;
   }
   update(dt, lp, t) {
-    const show = lp.firstPerson && !lp.vehicle && !lp.downed;
+    const show = lp.firstPerson && !lp.vehicle && !lp.downed && lp.drawn;
     this.group.visible = show;
     if (!show) return;
     this.rifle.visible = lp.weapon === 'blaster';

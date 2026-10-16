@@ -195,7 +195,7 @@ export class Game {
       case 'in': this.onInput(p, msg); break;
       case 'fire': if (alive) this.onFire(p, msg); break;
       case 'vfire': if (alive) this.onVehicleFire(p, msg); break;
-      case 'mel': if (alive && (p.weapon === 'blade' || p.weapon === 'knives') && !p.vehicle) { bladeSwing(this, p); breakCloak(this, p); } break;
+      case 'mel': if (alive && p.drawn && (p.weapon === 'blade' || p.weapon === 'knives') && !p.vehicle) { bladeSwing(this, p); breakCloak(this, p); } break;
       case 'ab': if (alive && !p.vehicle && (msg.k === 'q' || msg.k === 'f' || msg.k === 'x')) useAbility(this, p, msg.k, msg); break;
       case 'gren': if (alive && !p.vehicle) this.onGrenade(p, msg); break;
       case 'leap': {
@@ -230,8 +230,9 @@ export class Game {
     p.sprint = !!(fl & 2);
     p.blocking = !!(fl & 4) && p.weapon === 'blade';
     p.onGround = !!(fl & 8);
+    p.drawn = !!(fl & 16) && !p.vehicle;
     p.weapon = classOf(p).weapon;
-    p.blocking = !!(fl & 4) && p.weapon === 'blade';
+    p.blocking = !!(fl & 4) && p.weapon === 'blade' && p.drawn;
     if (p.blocking && !wasBlocking) p.blockStart = now;
     if (!Array.isArray(m.p) || m.p.length !== 3) return;
     let [x, y, z] = m.p.map(Number);
@@ -262,7 +263,7 @@ export class Game {
   }
 
   onFire(p, m) {
-    if (p.vehicle || !['blaster', 'pistols', 'pistol'].includes(p.weapon) || p.overheated) return;
+    if (p.vehicle || !p.drawn || !['blaster', 'pistols', 'pistol'].includes(p.weapon) || p.overheated) return;
     const W = weaponStats(p);
     const cyc = !!p.upgrades.cyclic;
     const sup = active(this, p, 'suppress');
@@ -788,6 +789,7 @@ export class Game {
       vis *= light;
       if (this.time < p.shroudUntil) vis *= active(this, p, 'cloak') ? POWERS.cloak.visibility : POWERS.shroud.visibility;
       tickClass(this, p, dt);
+      if (!p.drawn && !p.vehicle) vis *= 0.85; // holstered: you could be anyone
       if (p.vehicle) vis = 1.6;
       p.visibility = clamp(vis, 0.05, 2);
       p.lit = light;
@@ -876,6 +878,7 @@ export class Game {
       if (e.blocking) flags |= F.BLOCK;
       if (e.weapon === 'blade' || e.weapon === 'knives') flags |= F.BLADE;
       if (active(this, e, 'bulwark')) flags |= F.SHIELD;
+      if (e.drawn) flags |= F.DRAWN;
       if (e.downed) flags |= F.DOWNED;
       if (e.vehicle) flags |= F.DRIVING;
       if (e.sprint) flags |= F.SPRINT;

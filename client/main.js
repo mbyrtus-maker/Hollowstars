@@ -11,6 +11,7 @@ import { Entities } from './entities.js';
 import { LocalPlayer, ViewModel } from './localplayer.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
+import { Humanoid } from './render/humanoid.js';
 import { Audio } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -25,7 +26,7 @@ const S = {
   lastT: performance.now() / 1000, t: 0, chatting: false, mode: 'online', boltOwners: new Map(), wasBlade: false,
 };
 window.__hs = S; // handy for debugging and automated tests
-S.util = { ground: (x, z) => groundAt(S.world, x, z, terrainHeight(x, z) + 1.2) };
+S.util = { Humanoid, ground: (x, z) => groundAt(S.world, x, z, terrainHeight(x, z) + 1.2) };
 
 // ------------------------------------------------------------------ settings
 function loadSettings() {
@@ -195,6 +196,7 @@ function onMessage(raw) {
       if (S.vm) S.scene.camera.remove(S.vm.group);
       S.vm = new ViewModel(S.scene.camera, m.color, S.lp.weapon);
       S.hud.setClass(S.lp.cls);
+      S.hud.setDrawn(false);
       S.running = true;
       $('loading').classList.add('hidden');
       S.hud.show(true);
@@ -407,6 +409,8 @@ function frame() {
     }
   }
   if (act.melee) S.transport.send({ t: 'mel' });
+  if (act.draw) { if (lp.weapon !== 'blade') audio.ui('click'); S.hud.setDrawn(lp.drawn); }
+  if (act.needDraw && S.t - (S.drawHintT || -9) > 4) { S.drawHintT = S.t; S.hud.note('Your weapon is holstered. Press R to draw it.', 'info'); }
   if (act.ab) useAbility(act.ab, lp, camera);
   if (act.med) S.transport.send({ t: 'med' });
   if (act.leap) { S.transport.send({ t: 'leap' }); audio.whoosh(true); fx.dust(lp.body.x, lp.body.y, lp.body.z, 10, 1.5); }
@@ -420,7 +424,7 @@ function frame() {
   if (S.inputAcc >= 1 / INPUT_RATE) { S.inputAcc = 0; S.transport.send(lp.inputMsg()); }
 
   // weapon sounds
-  const blade = lp.weapon === 'blade' && !lp.vehicle && !lp.downed;
+  const blade = lp.weapon === 'blade' && lp.drawn && !lp.vehicle && !lp.downed;
   if (blade !== S.wasBlade) { audio.ignite(blade); S.wasBlade = blade; }
   const myView = ents.get(S.myId);
   const swingI = myView && myView.human && myView.human.swingT < 0.42 ? 1 : 0;

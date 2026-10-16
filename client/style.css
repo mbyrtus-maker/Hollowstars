@@ -143,6 +143,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--lumen); out
 #crosshair.blade .ch-ring { border-style: dashed; border-color: rgba(127,227,255,0.6); }
 #crosshair.aim .ch-ring { transform: scale(0.6); }
 #crosshair.hot .ch-ring { border-color: var(--tithe); }
+#crosshair.holstered { opacity: 0.35; }
 #hitmark { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px; opacity: 0; transition: opacity 0.2s;
   background: linear-gradient(45deg, transparent 45%, #fff 45%, #fff 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, #fff 45%, #fff 55%, transparent 55%); }
 #hitmark.kill { background: linear-gradient(45deg, transparent 43%, var(--tithe) 43%, var(--tithe) 57%, transparent 57%), linear-gradient(-45deg, transparent 43%, var(--tithe) 43%, var(--tithe) 57%, transparent 57%); }

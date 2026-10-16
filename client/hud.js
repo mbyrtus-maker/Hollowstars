@@ -28,6 +28,14 @@ export class HUD {
 
   show(v) { this.el.hud.classList.toggle('hidden', !v); }
 
+  setDrawn(drawn) {
+    this.drawnState = drawn;
+    const C = CLASSES[this.cls] || CLASSES.soldier;
+    this.el['wpn-name'].textContent = drawn ? C.weaponName : `${C.weaponName} (holstered)`;
+    this.el['slot-main'].classList.toggle('on', drawn);
+    this.el.crosshair.classList.toggle('holstered', !drawn);
+  }
+
   setClass(cls) {
     const C = CLASSES[cls];
     this.cls = cls;

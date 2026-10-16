@@ -30,7 +30,7 @@ for (let n = 0; n < seconds / TICK_DT; n++) {
     if (d > 2) { b.x += dx / d * 8 * TICK_DT; b.z += dz / d * 8 * TICK_DT; }
     b.y = p.y;
     const yaw = Math.atan2(-dx, -dz);
-    game.handle(b.cid, { t: 'in', tp: p.tpSeq, p: [b.x, b.y, b.z], v: [dx / d * 8, 0, dz / d * 8], yw: yaw, pt: 0, f: (n % 200 < 100 ? 1 : 0) | 8 | (i === 2 ? 4 : 0), w: i === 2 ? 1 : 0 });
+    game.handle(b.cid, { t: 'in', tp: p.tpSeq, p: [b.x, b.y, b.z], v: [dx / d * 8, 0, dz / d * 8], yw: yaw, pt: 0, f: (n % 200 < 100 ? 1 : 0) | 8 | 16 | (i === 2 ? 4 : 0), w: i === 2 ? 1 : 0 });
     if (n % 7 === i) game.handle(b.cid, { t: 'fire', o: [b.x, b.y + 1.4, b.z], d: [dx / d, 0, dz / d] });
     if (n % 300 === 50 + i) game.handle(b.cid, { t: 'gren', o: [b.x, b.y + 1.5, b.z], d: [dx / d, 0.3, dz / d] });
     if (n % 90 === 10) game.handle(b.cid, { t: 'push', pitch: 0 });

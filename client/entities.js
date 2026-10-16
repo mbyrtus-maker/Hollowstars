@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { K, F, PLAYER_COLORS, BLADE_COLORS } from '../shared/config.js';
 import { lerp, lerpAngle, clamp } from '../shared/math.js';
-import { Humanoid, Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup } from './render/models.js';
+import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup } from './render/models.js';
+import { Humanoid } from './render/humanoid.js';
 
 const HUMAN = { [K.PLAYER]: 'player', [K.LANCER]: 'lancer', [K.OFFICER]: 'officer', [K.CIVILIAN]: 'civilian', [K.MERCHANT]: 'merchant', [K.INFORMANT]: 'informant', [K.PRISONER]: 'prisoner', [K.BARTENDER]: 'bartender' };
 const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
@@ -145,7 +146,7 @@ export class Entities {
     h.update(dt, {
       speed, crouch: !!(fl & F.CROUCH) && kind !== K.INFORMANT, sit: kind === K.INFORMANT || (kind === K.CIVILIAN && (fl & F.CROUCH) && !(fl & F.FLEE)), cower: kind === K.PRISONER && (fl & F.CROUCH) && speed < 0.3,
       pitch: kind === K.PLAYER ? (isMe ? local.pitch : (s.a2 || 0) / 100) : 0,
-      weapon, block: !!(fl & F.BLOCK), swing: kind === K.PLAYER ? (isMe ? local.swingCount : s.a1) : undefined,
+      weapon, drawn: kind === K.PLAYER ? !!(fl & F.DRAWN) : undefined, block: !!(fl & F.BLOCK), swing: kind === K.PLAYER ? (isMe ? local.swingCount : s.a1) : undefined,
       downed: !!(fl & F.DOWNED), dead: !!(fl & F.DEAD), driving, talk: !!(fl & F.TALK), work: !!(fl & F.WORK),
       flee: !!(fl & F.FLEE), stagger: !!(fl & F.STAGGER), air: kind === K.PLAYER && !!(fl & F.AIR) && !driving,
       aim: guard ? !!(fl & F.ALERT) : isMe ? local.aiming : true, lowReady: guard && !(fl & F.ALERT),

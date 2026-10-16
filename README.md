@@ -85,6 +85,7 @@ Open `http://localhost:8080`, enter a callsign and a crew room name, then make p
 | --- | --- |
 | Move / sprint / crouch | WASD / Shift / C (or Ctrl) |
 | Jump / charged Current leap | Space / hold Space |
+| Draw / holster your weapon | R |
 | Fire / swing | Left mouse |
 | Aim down sights / block and deflect (Warden) | Right mouse |
 | Class abilities | Q / F / X |
