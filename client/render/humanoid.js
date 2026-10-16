@@ -36,7 +36,8 @@ function limb(r0, r1, len, segs = 9) {
 }
 function ball(r, w = 9, h = 7) { return new THREE.SphereGeometry(r, w, h); }
 function ellipsoid(rx, ry, rz, w = 12, h = 9) { const g = new THREE.SphereGeometry(1, w, h); g.scale(rx, ry, rz); return g; }
-function lathe(pts, segs = 12, depth = 1) { const g = new THREE.LatheGeometry(pts.map(([r, y]) => V2(r, y)), segs); if (depth !== 1) g.scale(1, 1, depth); return g; }
+// Profiles may be written top-down; LatheGeometry needs them bottom-up for outward-facing surfaces
+function lathe(pts, segs = 12, depth = 1) { const p = pts[0][1] > pts[pts.length - 1][1] ? [...pts].reverse() : pts; const g = new THREE.LatheGeometry(p.map(([r, y]) => V2(r, y)), segs); if (depth !== 1) g.scale(1, 1, depth); return g; }
 function rbox(w, h, d, r = 0.018) { return new RoundedBoxGeometry(w, h, d, 2, Math.min(r, Math.min(w, h, d) * 0.45)); }
 
 // ------------------------------------------------------------------ palettes
@@ -93,8 +94,9 @@ export class Humanoid {
     this.mBack = new THREE.Group(); this.mBack.position.set(0.02, 0.3, 0.19); this.mBack.rotation.set(Math.PI / 2, 0, 0.65); this.spine.add(this.mBack);
     this.mHipR = new THREE.Group(); this.mHipR.position.set(0.2, -0.06, 0.03); this.mHipR.rotation.set(-Math.PI / 2 + 0.15, 0, 0); this.pelvis.add(this.mHipR);
     this.mHipL = new THREE.Group(); this.mHipL.position.set(-0.2, -0.06, 0.03); this.mHipL.rotation.set(-Math.PI / 2 + 0.15, 0, 0); this.pelvis.add(this.mHipL);
-    this.mSheathR = new THREE.Group(); this.mSheathR.position.set(0.09, 0.02, 0.17); this.mSheathR.rotation.set(0, 0, Math.PI - 0.55); this.pelvis.add(this.mSheathR);
-    this.mSheathL = new THREE.Group(); this.mSheathL.position.set(-0.09, 0.02, 0.17); this.mSheathL.rotation.set(0, 0, -Math.PI + 0.55); this.pelvis.add(this.mSheathL);
+    // knife sheaths ride on the outside of each hip, blades pointing down
+    this.mSheathR = new THREE.Group(); this.mSheathR.position.set(0.185, 0.0, -0.01); this.mSheathR.rotation.set(0.12, 0, Math.PI - 0.12); this.pelvis.add(this.mSheathR);
+    this.mSheathL = new THREE.Group(); this.mSheathL.position.set(-0.185, 0.0, -0.01); this.mSheathL.rotation.set(0.12, 0, -Math.PI + 0.12); this.pelvis.add(this.mSheathL);
   }
 
   // add a shaped part to a bone with a material key and colour
@@ -221,7 +223,11 @@ export class Humanoid {
       this.part(P, new THREE.TorusGeometry(0.135, 0.02, 6, 16).rotateX(Math.PI / 2).scale(1, 1, 0.75), 'leather', 0x2a1e16, 0, 0.06, 0);
       if (cls === 'warden') {
         this.hair(rng, hairC, 'short');
-        this.part(this.coatBone, lathe([[0.15, 0.04], [0.2, -0.2], [0.27, -0.55], [0.3, -0.72]], 12, 0.85), 'cloth', 0x5e4a38);
+        // full-length robe that wraps all the way around, plus an over-robe on the chest
+        this.part(this.coatBone, lathe([[0.14, 0.08], [0.17, -0.06], [0.21, -0.25], [0.27, -0.55], [0.31, -0.8], [0.32, -0.86]], 16, 0.88), 'cloth', 0x5e4a38);
+        this.part(this.spine, lathe([[0.15, 0.0], [0.165, 0.16], [0.186, 0.32], [0.198, 0.44], [0.16, 0.51], [0.1, 0.55]], 14, 0.72), 'cloth', 0x5e4a38);
+        for (const shb of [this.shL, this.shR]) this.part(shb, limb(0.07, 0.075, 0.3, 10), 'cloth', 0x5e4a38, 0, -0.01, 0);
+        for (const elb of [this.elL, this.elR]) this.part(elb, limb(0.075, 0.085, 0.16, 10), 'cloth', 0x5e4a38, 0, 0.0, 0);
         this.part(H, new THREE.SphereGeometry(0.135, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), 'cloth', 0x4e3e30, 0, 0.13, 0.03, -0.35);
         this.part(S, rbox(0.06, 0.55, 0.012), 'cloth', 0x3a2a20, 0.02, 0.25, -0.118, 0, 0, 0.55);
         this.coatSwing = 0.6;
@@ -229,7 +235,6 @@ export class Humanoid {
         this.hair(rng, hairC, 'long');
         this.part(H, new THREE.CylinderGeometry(0.29, 0.29, 0.018, 16), 'leather', 0x3a2a1e, 0, 0.23, 0);
         this.part(H, new THREE.CylinderGeometry(0.11, 0.125, 0.12, 12), 'leather', 0x3a2a1e, 0, 0.29, 0);
-        this.part(this.coatBone, lathe([[0.15, 0.06], [0.19, -0.15], [0.22, -0.55], [0.24, -0.7]], 12, 0.8), 'cloth', 0x5a3e2a);
         this.part(S, lathe([[0.16, 0.2], [0.18, 0.4], [0.17, 0.48], [0.1, 0.53]], 12, 0.72), 'cloth', 0x5a3e2a);
         this.coatSwing = 0.7;
       } else if (cls === 'soldier') {
@@ -271,8 +276,7 @@ export class Humanoid {
     this.part(this.coatBone, lathe([[0.14, 0.05], [0.2, -0.2], [0.26, -0.5], [0.28, -0.66]], 12, 0.85), 'cloth', robe);
     this.part(S, rbox(0.05, 0.5, 0.012), 'cloth', accent, -0.02, 0.26, -0.117, 0, 0, -0.5);
     this.coatSwing = 0.5;
-    if (type === 'merchant') { this.part(S, rbox(0.3, 0.5, 0.03), 'leather', 0x6e4a30, 0, 0.18, -0.11); this.root.scale.setScalar(1.05); }
-    if (type === 'bartender') this.part(S, rbox(0.3, 0.5, 0.03), 'cloth', 0xd8d0c0, 0, 0.18, -0.11);
+    if (type === 'merchant') this.root.scale.setScalar(1.05);
     if (type === 'informant') this.part(H, new THREE.CylinderGeometry(0.17, 0.17, 0.015, 14), 'leather', 0x3a2a20, 0, 0.24, 0);
   }
 
