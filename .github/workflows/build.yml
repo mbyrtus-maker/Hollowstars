@@ -1,0 +1,36 @@
+# Tests and rebuilds the game on every push to main.
+# GitHub Pages ("Deploy from a branch" -> main, / root) serves the rebuilt index.html.
+name: Test and build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Simulation tests
+        run: |
+          node tools/missions-test.js
+          node tools/classes-test.js
+      - name: Build the game
+        run: npm run build -- --single
+      - name: Commit the rebuilt page if it changed
+        run: |
+          if ! git diff --quiet -- index.html; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add index.html
+            git commit -m "Rebuild index.html"
+            git push
+          fi

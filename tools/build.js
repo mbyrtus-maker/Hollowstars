@@ -36,6 +36,10 @@ if (process.argv.includes('--single')) {
   html = html.replace('<script type="module" src="game.js"></script>', () => `<script type="module">\n${js}\n</script>`);
   fs.writeFileSync(path.join(DIST, 'hollow-stars.html'), html);
   console.log(`Built dist/hollow-stars.html (${(html.length / 1024).toFixed(0)} KB)`);
+  // GitHub Pages ("Deploy from a branch", root) serves this file as the game
+  const pagesNote = '<!-- Built by tools/build.js from client/ — edit the sources, not this file. -->\n';
+  fs.writeFileSync(path.join(ROOT, 'index.html'), html.replace(/^(<!doctype html>\s*)/i, (m) => m + pagesNote));
+  console.log('Built index.html (GitHub Pages)');
   // Fragment for hosts that supply their own document skeleton (e.g. a published Claude artifact)
   const frag = html
     .replace(/<!doctype html>\s*/i, '')

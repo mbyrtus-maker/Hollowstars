@@ -53,8 +53,8 @@ A 4-player co-op space-opera action game for the browser. This is the first play
 ## Play on GitHub Pages (no server needed)
 
 1. Push this folder to a GitHub repository.
-2. In the repo, open **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**.
-3. The included workflow (`.github/workflows/pages.yml`) runs the simulation tests, builds the game and publishes it. The game appears at `https://<you>.github.io/<repo>/`.
+2. In the repo, open **Settings → Pages → Build and deployment**. Choose **Deploy from a branch**, then **main** and **/ (root)**.
+3. The game appears at `https://<you>.github.io/<repo>/`. It is the self-contained `index.html` at the repo root, built by `npm run build -- --single`. On every push, `.github/workflows/build.yml` runs the simulation tests, rebuilds `index.html` and commits it if it changed, so the site always matches the code.
 4. One player chooses **Host a crew**. They get a five-letter crew code and a **Copy invite link** button: the chip under the party list, or in the pause menu.
 5. Friends open the link, or choose **Join a crew** and type the code.
 
