@@ -127,5 +127,37 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
   check(e4.ai.state === 'investigate', `spy: a noisemaker draws a guard to investigate (${e4.ai.state})`);
 }
 
+// ---- Cloak breaks sight, even during an alarm
+{
+  const { g, ps: [p] } = setup('spy');
+  for (const o of [...g.ents.values()]) if ((o.kind === K.LANCER || o.kind === K.OFFICER || o.kind === K.CAMERA) && o.ai.name !== 'court') g.removeEnt(o);
+  const e = guard(g, 'court'); calm(e);
+  place(g, p, e.x + 7, e.z); p.crouch = false; g.rebuildSpatial();
+  e.yaw = Math.atan2(-(p.x - e.x), -(p.z - e.z));
+  run(g, 1.5);
+  check(e.ai.state === 'combat' && g.time - e.ai.lastSeen < 0.3, 'cloak: guard has spotted the spy standing in front of him');
+  g.triggerAlarm('test');
+  g.handle('p0', { t: 'ab', k: 'x' });
+  let shots = 0; const sb = g.spawnBolt.bind(g); g.spawnBolt = (o, ...a) => { if (o === e) shots++; return sb(o, ...a); };
+  run(g, 3);
+  check(g.time - e.ai.lastSeen > 2.5, 'cloak: activating it breaks the guard\'s sight immediately, alarm or not');
+  check(shots === 0, `cloak: the guard stops shooting at you (${shots} shots)`);
+}
+
+// ---- Alarm resets after 30 seconds without a sighting
+{
+  const { g, ps: [p] } = setup('soldier');
+  g.camerasOn = false; g.camOffUntil = 1e9;
+  place(g, p, 140, 0); p.crouch = false;
+  for (let i = 0; i < 300 && !g.alarm.active; i++) g.tick(0.05);
+  check(g.alarm.active, 'alarm: raised after being spotted in the courtyard');
+  run(g, 0.5);
+  place(g, p, -40, -60); // vanish into the desert
+  run(g, 20);
+  check(g.alarm.active, 'alarm: still active 20 seconds after the last sighting');
+  run(g, 13);
+  check(!g.alarm.active, 'alarm: stands down once 30 seconds pass with no sighting');
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll class checks passed');
 process.exit(failures ? 1 : 0);

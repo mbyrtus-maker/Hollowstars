@@ -152,6 +152,19 @@ export class Entities {
       aim: guard ? !!(fl & F.ALERT) : isMe ? local.aiming : true, lowReady: guard && !(fl & F.ALERT),
     }, t + v.id);
     if (kind === K.INFORMANT) v.model.position.y = v.y - 0.05;
+    // footsteps: one per stride half-cycle while walking on the ground
+    const step = Math.floor(h.phase / Math.PI);
+    if (step !== v.lastStep) {
+      v.lastStep = step;
+      const grounded = !(fl & (F.DEAD | F.DOWNED | F.DRIVING | F.AIR));
+      const L = this.audio.listener;
+      if (grounded && speed > 0.6 && Math.hypot(v.x - L.x, v.z - L.z) < 24) {
+        const hard = v.x > 124 && v.x < 216 && v.z > -36 && v.z < 36;
+        const crouched = !!(fl & F.CROUCH);
+        const loud = crouched ? 0.1 : speed > 7 ? 1 : speed > 3.5 ? 0.6 : 0.4;
+        this.audio.footstep(v.x, v.y, v.z, hard, isMe ? loud : loud * 0.8);
+      }
+    }
     // Blade fx
     if (weapon === 'knives' && h.swingT < 0.02 && v.lastSwingSeen !== h.lastSwing) { v.lastSwingSeen = h.lastSwing; this.audio.slash(v.x, v.y + 1, v.z); }
     if (weapon === 'blade' && !(fl & (F.DEAD | F.DOWNED)) && !driving) {

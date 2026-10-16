@@ -153,7 +153,24 @@ export function useAbility(g, p, k, m) {
       b.knife = true;
       break;
     }
-    case 'cloak': if (!ready()) return; spend(A.cd); p.act.cloak = g.time + A.dur; p.shroudUntil = g.time + A.dur; g.event(['shroud', p.id, A.dur]); break;
+    case 'cloak': {
+      if (!ready()) return;
+      spend(A.cd);
+      p.act.cloak = g.time + A.dur; p.shroudUntil = g.time + A.dur; p.cloaked = true;
+      // Everyone tracking you loses sight and has to search where they last saw you
+      for (const e of g.ents.values()) {
+        if (!e.hostile || e.dead || !e.ai) continue;
+        if (e.kind === K.CAMERA) { e.ai.sus = 0; e.ai.tracking = false; continue; }
+        if (e.ai.target === p.id || (e.ai.stim && e.ai.stim.id === p.id)) {
+          e.ai.target = null; e.ai.lastSeen = -99; e.ai.alarmAt = e.ai.alarmAt;
+          e.ai.lkp = { x: p.x, y: p.y, z: p.z };
+          if (e.ai.state !== 'combat') { e.ai.sus = Math.min(e.ai.sus, 0.3); }
+        }
+      }
+      if (g.alarm.lkp && dist2(g.alarm.lkp.x, g.alarm.lkp.z, p.x, p.z) < 30) g.alarm.lkp = { x: p.x, y: p.y, z: p.z };
+      g.event(['shroud', p.id, A.dur]);
+      break;
+    }
   }
 }
 

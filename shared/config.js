@@ -131,6 +131,7 @@ export const STEALTH = {
   cameraRange: 27,
   cameraHalfAngle: 0.55,
   alarmDuration: 75,
+  alarmQuiet: 30, // seconds without a sighting before the alarm resets
   reinforceInterval: 16,
   maxGuards: 26,
 };

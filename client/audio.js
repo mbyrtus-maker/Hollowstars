@@ -78,6 +78,29 @@ export class Audio {
     n.connect(nf).connect(ng).connect(out);
     n.start(t); n.stop(t + 0.1);
   }
+  // Soft footstep: a hushed crunch on sand, a quiet clack on the garrison's hard floors
+  footstep(x, y, z, hard, loud) {
+    if (!this.ctx) return;
+    const out = this.spatial(x, y, z, 3, 26);
+    if (!out) return;
+    const c = this.ctx, t = c.currentTime;
+    const n = this.noise(), g = c.createGain(), f = c.createBiquadFilter();
+    f.type = hard ? 'bandpass' : 'lowpass';
+    f.frequency.value = (hard ? 1700 : 650) * (0.85 + Math.random() * 0.3);
+    f.Q.value = hard ? 2.5 : 0.7;
+    const v = 0.035 + loud * 0.07;
+    this.env(g, t, 0.004, v, hard ? 0.05 : 0.09);
+    n.connect(f).connect(g).connect(out);
+    n.start(t); n.stop(t + 0.14);
+    if (hard) {
+      const o = c.createOscillator(), og = c.createGain();
+      o.frequency.setValueAtTime(140 + Math.random() * 40, t);
+      o.frequency.exponentialRampToValueAtTime(70, t + 0.05);
+      this.env(og, t, 0.002, v * 0.6, 0.05);
+      o.connect(og).connect(out);
+      o.start(t); o.stop(t + 0.08);
+    }
+  }
   impact(x, y, z) {
     if (!this.ctx) return;
     const out = this.spatial(x, y, z, 4, 60);

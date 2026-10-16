@@ -184,6 +184,7 @@ function bestStimulus(game, e, isCamera) {
   let best = null, bestRate = 0;
   for (const p of game.players()) {
     if (p.dead || p.downed) continue;
+    if (p.cloaked) continue; // a cloaked player cannot be seen, alarm or not
     if (!isCamera && ai.ignore && ai.ignore.id === p.id && game.time < ai.ignore.until) continue;
     const chest = p.y + (p.crouch ? 0.75 : 1.3);
     const dx = p.x - e.x, dz = p.z - e.z, dy = chest - eye(e);
@@ -334,6 +335,7 @@ function updateGuard(game, e, dt) {
     ai.stim = { x: stim.p.x, y: stim.p.y, z: stim.p.z, id: stim.p.id };
     ai.stimT = game.time;
     if (ai.state === 'combat') { ai.lkp = { x: stim.p.x, y: stim.p.y, z: stim.p.z }; ai.lastSeen = game.time; ai.target = stim.p.id; }
+    if (ai.state === 'combat' || ai.sus >= 1) game.noteDetection(stim.p);
   } else if (ai.state !== 'combat') {
     ai.sus = Math.max(0, ai.sus - STEALTH.decayRate * dt * (ai.state === 'investigate' ? 0.5 : 1));
   }
@@ -354,9 +356,10 @@ function updateGuard(game, e, dt) {
     }
   }
   // During a base-wide alarm everyone hunts
-  if (game.alarm.active && ai.garrison && ai.state !== 'combat') {
-    const np = nearestPlayer(game, e.x, e.z, 140);
-    if (np) { enterCombat(game, e, null, false); ai.lkp = { x: np.x, y: np.y, z: np.z }; ai.lastSeen = game.time - 3; }
+  const L = game.alarm.lkp;
+  if (game.alarm.active && ai.garrison && L && (ai.state === 'routine' || ai.state === 'suspicious') && !ai.post) {
+    ai.state = 'search'; ai.alert = 2;
+    ai.search = { x: L.x + (game.rng() - 0.5) * 24, z: L.z + (game.rng() - 0.5) * 24, until: game.time + 14 + game.rng() * 8 };
   }
 
   const walk = 1.9, run = 5.2;
@@ -505,6 +508,7 @@ export function updateCamera(game, e, dt) {
   if (stim) {
     ai.sus = Math.min(1, ai.sus + stim.rate * dt);
     ai.tracking = true; ai.trackT = game.time; ai.trackYaw = yawTo(e.x, e.z, stim.p.x, stim.p.z);
+    if (ai.sus >= 0.6) game.noteDetection(stim.p);
     if (ai.sus >= 1 && !game.alarm.active) {
       game.bark(e, 'INTRUDER DETECTED.');
       game.triggerAlarm('camera');

@@ -29,7 +29,7 @@ export class Game {
     this.events = [];
     this.priv = new Map();
     this.clients = new Map(); // clientId -> player id
-    this.alarm = { active: false, lastContact: 0, reinforceAt: 0, cause: '' };
+    this.alarm = { active: false, lastContact: 0, reinforceAt: 0, cause: '', lkp: null };
     this.camerasOn = true;
     this.camOffUntil = 0;
     this.party = { items: {} };
@@ -483,6 +483,7 @@ export class Game {
     this.alarm.cause = cause;
     this.alarm.lastContact = this.time;
     this.alarm.reinforceAt = this.time + 8;
+    if (!this.alarm.lkp) { const np = this.players().find((p) => !p.downed && !p.cloaked); if (np) this.alarm.lkp = { x: np.x, y: np.y, z: np.z }; }
     this.alarm.startedAt = this.time;
     if (this.mission && this.mission.status === 'active' && this.mission.ghost) {
       this.mission.ghost = false;
@@ -491,13 +492,20 @@ export class Game {
     if (this.world.doors.gate.open) { setDoorOpen(this.world, 'gate', false); this.event(['door', 'gate', 0]); }
     this.event(['alarm', 1]);
     this.note('GARRISON ALARM — lockdown in effect.', 'alarm');
-    for (const e of this.ents.values()) {
-      if (!e.hostile || !e.garrison || e.dead || e.kind === K.CAMERA) continue;
-      let best = null, bd = 1e9;
-      for (const p of this.players()) { if (p.downed) continue; const d = dist2(e.x, e.z, p.x, p.z); if (d < bd) { bd = d; best = p; } }
-      if (best && bd < 160) alertGuardTo(this, e, best);
+    // Guards converge on where the intruder was last seen, not on where everyone is now
+    const L = this.alarm.lkp;
+    if (L) for (const e of this.ents.values()) {
+      if (!e.hostile || !e.garrison || e.dead || e.kind === K.CAMERA || e.ai.state === 'combat') continue;
+      if (e.ai.post) continue;
+      e.ai.state = 'search'; e.ai.alert = 2;
+      e.ai.search = { x: L.x + (this.rng() - 0.5) * 16, z: L.z + (this.rng() - 0.5) * 16, until: this.time + 18 };
     }
     this.globalDirty = true;
+  }
+  // A real sighting (by a guard or camera) keeps the alarm alive and updates where to hunt
+  noteDetection(p) {
+    this.alarm.lkp = { x: p.x, y: p.y, z: p.z };
+    if (this.alarm.active) this.alarm.lastContact = this.time;
   }
   broadcastAlert(p) {
     for (const e of this.ents.values()) if (e.hostile && e.garrison && !e.dead && e.kind !== K.CAMERA) alertGuardTo(this, e, p);
@@ -505,6 +513,7 @@ export class Game {
   endAlarm(reason) {
     if (!this.alarm.active) return;
     this.alarm.active = false;
+    this.alarm.lkp = null;
     this.event(['alarm', 0]);
     this.note(reason || 'The garrison stands down... for now.', 'info');
     setDoorOpen(this.world, 'gate', true);
@@ -787,7 +796,8 @@ export class Game {
       let light = shade ? 0.6 : 1;
       light = lerp(light, 1.45, lamp);
       vis *= light;
-      if (this.time < p.shroudUntil) vis *= active(this, p, 'cloak') ? POWERS.cloak.visibility : POWERS.shroud.visibility;
+      p.cloaked = active(this, p, 'cloak');
+      if (this.time < p.shroudUntil) vis *= p.cloaked ? POWERS.cloak.visibility : POWERS.shroud.visibility;
       tickClass(this, p, dt);
       if (!p.drawn && !p.vehicle) vis *= 0.85; // holstered: you could be anyone
       if (p.vehicle) vis = 1.6;
@@ -829,17 +839,16 @@ export class Game {
   updateAlarm(dt) {
     if (!this.alarm.active) return;
     // Any guard actively seeing a player keeps the alarm going
-    for (const e of this.ents.values()) {
-      if (e.hostile && !e.dead && e.ai && e.ai.state === 'combat' && this.time - (e.ai.lastSeen || -99) < 1) { this.alarm.lastContact = this.time; break; }
-    }
-    if (this.time - this.alarm.lastContact > 35) { this.endAlarm(); return; }
+    // The alarm stands down after 30 seconds without anyone actually being seen
+    if (this.time - this.alarm.lastContact > STEALTH.alarmQuiet) { this.endAlarm('No sign of the intruders for 30 seconds. The garrison stands down.'); return; }
     const mastUp = !this.world.destructibles.mast.destroyed;
     if (mastUp && this.time >= this.alarm.reinforceAt) {
       this.alarm.reinforceAt = this.time + STEALTH.reinforceInterval;
       const alive = [...this.ents.values()].filter((e) => (e.kind === K.LANCER || e.kind === K.OFFICER) && !e.dead).length;
       if (alive < STEALTH.maxGuards) {
         const b = this.world.pois.barracks;
-        const target = this.players().filter((p) => !p.downed).sort((a, c) => dist2(a.x, a.z, b.x, b.z) - dist2(c.x, c.z, b.x, b.z))[0];
+        const L = this.alarm.lkp;
+        const target = L ? { id: null, ...L } : null;
         for (let i = 0; i < 2; i++) {
           const g = spawnGuard(this, { name: 'reinforcement', tasks: [{ x: b.x + (i - 0.5) * 3, z: b.z, act: 'look', wait: [2, 4] }, { x: 150, z: 6, act: 'scan', wait: [3, 5] }] }, { x: b.x + (i - 0.5) * 2.5, z: b.z, alerted: true, lkp: target ? { x: target.x, y: target.y, z: target.z } : null });
           g.garrison = true;
