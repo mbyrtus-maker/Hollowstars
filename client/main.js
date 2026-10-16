@@ -1,6 +1,9 @@
 // Hollow Stars client entry point.
 import * as THREE from 'three';
-import { createWorld, raycast, terrainHeight, groundAt } from '../shared/world.js';
+import { createWorld, raycast, terrainHeight, groundAt, useWorld } from '../shared/world.js';
+import '../shared/layouts.js';
+import { PLANETS } from '../shared/planets.js';
+import { Travel } from './travel.js';
 import { K, F, INPUT_RATE, INTERP_DELAY, PLAYER_COLORS, MISSIONS, CLASSES, DEFAULT_CLASS } from '../shared/config.js';
 import { dirFromYawPitch } from '../shared/math.js';
 import { WsTransport, LocalTransport } from './net.js';
@@ -24,6 +27,7 @@ const S = {
   hud: new HUD(), input: new Input(canvas), audio: new Audio(),
   myId: 0, pv: null, g: null, clockOffset: null, running: false, inputAcc: 0, cid: 1,
   lastT: performance.now() / 1000, t: 0, chatting: false, mode: 'online', boltOwners: new Map(), wasBlade: false,
+  planet: null, travel: new Travel(),
 };
 window.__hs = S; // handy for debugging and automated tests
 S.util = { Humanoid, ground: (x, z) => groundAt(S.world, x, z, terrainHeight(x, z) + 1.2) };
@@ -170,16 +174,34 @@ function leave(why) {
 }
 
 // ------------------------------------------------------------------ world bootstrap
-function ensureWorld() {
-  if (S.world) return;
-  S.world = createWorld();
-  S.scene = createScene(canvas, S.world);
+function ensureWorld(planet) {
+  if (S.world) { if (S.planet !== planet) switchWorld(planet, true); return; }
+  S.planet = PLANETS[planet] ? planet : 'duskvaro';
+  S.world = createWorld(S.planet);
+  S.scene = createScene(canvas, S.world, PLANETS[S.planet].look);
   S.scene.setBloom(settings.bloom);
   S.scene.setAO(settings.ao);
   if (!settings.shadows) S.scene.setShadows(false);
   S.fx = new FX(S.scene.scene, S.world);
   S.fx.setRaycaster((x, y, z, dx, dy, dz) => raycast(S.world, x, y, z, dx, dy, dz, 1.5));
   S.ents = new Entities(S.scene.scene, S.fx, S.audio);
+  S.ents.hardRegion = S.world.regions.garrison;
+}
+
+// The ship has landed somewhere else: rebuild the world, the scene and everything tied to it
+function switchWorld(planet, quiet) {
+  S.planet = PLANETS[planet] ? planet : 'duskvaro';
+  S.world = createWorld(S.planet);
+  S.scene.loadWorld(S.world, PLANETS[S.planet].look);
+  S.fx.world = S.world;
+  S.fx.clearAll();
+  S.fx.setRaycaster((x, y, z, dx, dy, dz) => raycast(S.world, x, y, z, dx, dy, dz, 1.5));
+  S.ents.clear();
+  S.ents.hardRegion = S.world.regions.garrison;
+  S.boltOwners.clear();
+  if (S.lp) { S.lp.world = S.world; S.lp.enterVehicle(0); }
+  S.audio.alarm(false, 0, 0); S.audio.engine(false, 0);
+  if (!quiet) S.travel.arrive(S.planet, S.hud);
 }
 
 // ------------------------------------------------------------------ networking
@@ -188,7 +210,7 @@ function onMessage(raw) {
   try { m = JSON.parse(raw); } catch { return; }
   switch (m.t) {
     case 'welcome': {
-      ensureWorld();
+      ensureWorld(m.planet || 'duskvaro');
       S.myId = m.id;
       S.ents.myId = m.id;
       S.lp = new LocalPlayer(S.world, m.id, m.pos, m.yaw, m.color, m.cls);
@@ -203,7 +225,8 @@ function onMessage(raw) {
       $('pause-room').textContent = m.solo ? 'Solo game. Progress is saved in this browser.' : S.crew ? (S.mode === 'host' ? 'You are hosting. Keep this tab open while your crew plays.' : `Crew ${S.crew.code}. Your host's browser runs the game.`) : `Crew room “${m.room}”. Friends join with the same server and room name.`;
       setupInvite();
       $('clicktoplay').classList.remove('hidden');
-      S.hud.note(m.solo ? 'Welcome to Dusk Varo. The job board is in the Khet plaza, just east of your shuttle.' : 'Welcome to Dusk Varo. Gather your crew at the job board in the Khet plaza.', 'objective');
+      if (S.planet === 'duskvaro') S.hud.note(m.solo ? 'Welcome to Dusk Varo. The job board is in the Khet plaza, just east of the Wayfarer.' : 'Welcome to Dusk Varo. Gather your crew at the job board in the Khet plaza.', 'objective');
+      else S.hud.note(`Your crew is on ${PLANETS[S.planet].name}. ${PLANETS[S.planet].arrival}`, 'objective');
       requestAnimationFrame(frame);
       break;
     }
@@ -212,11 +235,13 @@ function onMessage(raw) {
     case 'tp': S.lp && S.lp.teleport(m.p, m.s); break;
     case 'imp': S.lp && S.lp.impulse(m.v); break;
     case 'veh': S.lp && S.lp.enterVehicle(m.id, m.s); break;
+    case 'planet': if (S.world && m.id !== S.planet) switchWorld(m.id); break;
     case 'ui': {
       S.input.unlock();
       const relock = () => { $('clicktoplay').classList.remove('hidden'); };
       if (m.ui === 'missions') S.hud.openMissions(S.g, (x) => S.transport.send(x), relock);
       else if (m.ui === 'shop') S.hud.openShop(m.merchant, () => S.pv, (x) => S.transport.send(x), relock);
+      else if (m.ui === 'nav') S.hud.openNav(() => S.g, S.myId, (x) => S.transport.send(x), relock);
       S.audio.ui('click');
       break;
     }
@@ -335,6 +360,12 @@ function handleEvent(ev, priv) {
       break;
     }
     case 'reset': fx.clearBolts(); break;
+    case 'travel': {
+      S.travel.launch(ev[1], ev[2]);
+      if (S.hud.modalOpen) S.hud.closeModal();
+      au.ui('good');
+      break;
+    }
     case 'roll': { const v = S.ents.get(ev[1]); if (v) fx.dust(v.x, v.y, v.z, 8, 1.2); break; }
     case 'bulwark': { const v = S.ents.get(ev[1]); if (v) { fx.ring(v.x, v.y, v.z, 0xffb04a, 3, 0.4); au.whoosh(true); } break; }
     case 'burst': { const [, pid, x, y, z] = ev; fx.ring(x, y, z, 0x4ae0a0, 10, 0.7); fx.heal(x, y, z, 30); au.ui('good'); break; }
@@ -373,6 +404,8 @@ function frame() {
   S.t += dt;
   const { input, lp, scene, fx, ents, hud, audio } = S;
   const camera = scene.camera;
+  useWorld(S.world);
+  const aboard = !!(S.pv && S.pv.ab0);
 
   // chat
   if (input.hit('Enter') && !S.chatting && !hud.modalOpen) {
@@ -389,8 +422,9 @@ function frame() {
   const act = {};
   const controlling = input.locked && !hud.modalOpen && !S.chatting;
   if (!controlling) { input.mouse.dx = input.mouse.dy = 0; }
-  const frozenInput = controlling ? input : FROZEN;
+  const frozenInput = controlling && !aboard && !S.travel.busy ? input : FROZEN;
   lp.update(dt, frozenInput, S.pv, act);
+  if (aboard) { lp.body.vx = lp.body.vy = lp.body.vz = 0; }
 
   // interact (press & hold)
   if (controlling && input.hit('KeyE') && S.pv && S.pv.ia) S.transport.send({ t: 'use', id: S.pv.ia[0], down: true });
@@ -398,6 +432,8 @@ function frame() {
 
   // camera before aiming so the crosshair ray matches this frame
   lp.updateCamera(camera, dt, settings.fov, fx.shake);
+  const shipCam = S.travel.update(dt, scene, camera, lp, aboard, controlling ? input : FROZEN);
+  S.travel.aboardTip(aboard && !S.travel.busy && !hud.modalOpen);
   if (act.fire || act.vfire || act.ping || act.grenade) {
     const aim = lp.aimPoint(camera, ents);
     if (act.fire) fireBlaster(aim);
@@ -437,6 +473,7 @@ function frame() {
   const rt = now + (S.clockOffset ?? 0) - INTERP_DELAY;
   ents.update(rt, dt, S.t, lp, camera);
   S.vm && S.vm.update(dt, lp, S.t);
+  if (S.vm && shipCam) S.vm.group.visible = false;
   fx.update(dt);
   scene.update(dt, S.t, lp.body);
   scene.render();

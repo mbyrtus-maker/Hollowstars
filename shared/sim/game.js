@@ -3,14 +3,21 @@
 
 import { K, F, PLAYER, WEAPONS, POWERS, STEALTH, ITEMS, MERCHANTS, MAX_PLAYERS, START_CREDITS, TICK_DT, MISSIONS, CLASSES } from '../config.js';
 import { mulberry32, clamp, dist2, angleDiff, yawTo, lerp } from '../math.js';
-import { createWorld, terrainHeight, setDoorOpen, inShadow, lampLight, groundAt } from '../world.js';
+import { createWorld, terrainHeight, setDoorOpen, inShadow, lampLight, groundAt, useWorld } from '../world.js';
+import '../layouts.js';
 import { stepSpeeder, SPEEDER } from '../vehicles.js';
-import { spawnGuard, garrisonRoster, spawnTown, spawnWildlife, spawnPrisoner, updateNPC, updateHerds, guardHearNoise, civilianScare, guardOnDamaged, alertGuardTo, isUnaware, pick } from './ai.js';
+import { spawnGuard, garrisonRoster, spawnTown, spawnWildlife, spawnPrisoner, spawnCaptives, updateNPC, updateHerds, guardHearNoise, civilianScare, guardOnDamaged, alertGuardTo, isUnaware, pick } from './ai.js';
 import { stepBolts, stepGrenades, explode, bladeSwing, powerPush, powerPull } from './combat.js';
-import { startMission, missionTick, missionView, abandonMission } from './missions.js';
+import { startMission, missionTick, missionView, abandonMission, contactTalk, contactLabel, terminalUse, missionHome, missionLeftPlanet } from './missions.js';
+import { PLANETS, SHIP } from '../planets.js';
 import { applyLoadout, useAbility, weaponStats, active, breakCloak, tickClass, absorbDamage, cooldownView, updateHunters, classOf } from './classes.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
+const REQ_NAMES = { cellcode: 'cell code', keycard: 'vault keycard', vaultcode: 'vault code' };
+const CONTACT_IDLE = {
+  vessa: ['The harvester eats a grove a day. Lowmarsh will drown in its own mud.', 'Keep your voice down. Kade has ears in the reeds.', 'If you came to help, help. If not, keep walking.'],
+  tobin: ['Cold enough to crack a blaster coil out there.', 'Ishen keeps the whole vault sealed. Nobody goes in without the code.', 'Drink something hot before you go anywhere.'],
+};
 
 export class Game {
   constructor(opts = {}) {
@@ -19,7 +26,9 @@ export class Game {
     this.saveProfile = opts.saveProfile || (() => {});
     this.loadProfile = opts.loadProfile || (() => null);
     this.roomName = opts.room || 'default';
-    this.world = createWorld();
+    this.planet = PLANETS[opts.planet] ? opts.planet : 'duskvaro';
+    this.world = createWorld(this.planet);
+    this.travel = null;
     this.rng = mulberry32(opts.seed || 90210);
     this.time = 0;
     this.tickN = 0;
@@ -40,7 +49,7 @@ export class Game {
     this.lastGlobal = '';
     this.spatial = new Map();
     this._players = [];
-    this.speederSpawns = this.world.pois.speeders;
+    this.speederSpawns = this.world.pois.speeders || [];
     this.respawnQueue = [];
     spawnTown(this);
     spawnWildlife(this);
@@ -106,7 +115,6 @@ export class Game {
     this.alarm.active = false;
     this.camerasOn = true;
     this.camOffUntil = 0;
-    this.party.items = {};
     for (const def of garrisonRoster(this.world)) {
       const g = spawnGuard(this, def);
       g.garrison = true;
@@ -116,7 +124,8 @@ export class Game {
       this.spawn({ kind: K.CAMERA, x: c.x, y: c.y, z: c.z, yaw: c.yaw, hp: 25, maxHp: 25, garrison: true, hostile: true, r: 0.3, h: 0.5, lookYaw: c.yaw, ai: { baseYaw: c.yaw, sweep: c.sweep, speed: c.speed, phase: this.rng() * 6, sus: 0, alert: 0, state: 'cam' } });
     }
     this.prisonerId = null;
-    if (missionId === 'rescue') { const p = spawnPrisoner(this); p.garrison = true; this.prisonerId = p.id; }
+    spawnCaptives(this);
+    if (missionId === 'rescue' && this.planet === 'duskvaro') { const p = spawnPrisoner(this); p.garrison = true; this.prisonerId = p.id; }
     this.event(['reset']);
     this.globalDirty = true;
   }
@@ -124,6 +133,7 @@ export class Game {
   // ---------------------------------------------------------------- players
 
   addPlayer(cid, info = {}) {
+    useWorld(this.world);
     if (this.players().length >= MAX_PLAYERS || [...this.ents.values()].filter((e) => e.kind === K.PLAYER).length >= MAX_PLAYERS) return { error: 'This crew is full (4 players).' };
     const name = String(info.name || 'Drifter').replace(/[^\w \-'.]/g, '').slice(0, 16) || 'Drifter';
     const used = new Set([...this.ents.values()].filter((e) => e.kind === K.PLAYER).map((p) => p.color));
@@ -149,12 +159,13 @@ export class Game {
     this.lastGlobal = '';
     this.note(`${p.name} joined the crew.`, 'info');
     this.globalDirty = true;
-    this.sendTo(cid, { t: 'welcome', id: p.id, room: this.roomName, solo: this.solo, pos: [r2(p.x), r2(p.y), r2(p.z)], yaw: p.yaw, tp: p.tpSeq, color: p.color, cls: p.cls });
+    this.sendTo(cid, { t: 'welcome', id: p.id, room: this.roomName, solo: this.solo, pos: [r2(p.x), r2(p.y), r2(p.z)], yaw: p.yaw, tp: p.tpSeq, color: p.color, cls: p.cls, planet: this.planet });
     if (CLASSES[p.cls].wanted) this.note(`${p.name} is a Warden. The Concordance pays well for Wardens — expect hunters.`, 'warn');
     return { player: p };
   }
 
   removePlayer(cid) {
+    useWorld(this.world);
     const p = this.playerOf(cid);
     this.clients.delete(cid);
     if (!p) return;
@@ -188,6 +199,7 @@ export class Game {
   // ---------------------------------------------------------------- messages
 
   handle(cid, msg) {
+    useWorld(this.world);
     const p = this.playerOf(cid);
     if (!p || !msg || typeof msg.t !== 'string') return;
     const alive = !p.downed && !p.dead;
@@ -208,6 +220,8 @@ export class Game {
       case 'buy': this.onBuy(p, msg.item); break;
       case 'accept': this.onAccept(p, msg.id); break;
       case 'abandon': abandonMission(this); break;
+      case 'travel': this.startTravel(p, String(msg.to || '')); break;
+      case 'disembark': if (p.aboard && !this.travel) this.disembark(p); break;
       case 'chat': {
         const m = String(msg.m || '').slice(0, 140).trim();
         if (m) this.event(['chat', p.name, m, p.color]);
@@ -223,6 +237,7 @@ export class Game {
     const dtIn = Math.max(0.033, now - p.lastInputT);
     p.lastInputT = now;
     p.yaw = +m.yw || 0;
+    if (p.aboard) return;
     p.pitch = clamp(+m.pt || 0, -1.5, 1.5);
     const fl = m.f | 0;
     const wasBlocking = p.blocking;
@@ -364,7 +379,7 @@ export class Game {
   damage(e, amt, src, info = {}) {
     if (e.dead || amt <= 0) return;
     if (e.kind === K.PLAYER) {
-      if (e.downed) return;
+      if (e.downed || e.aboard) return;
       amt = absorbDamage(this, e, amt);
       if (amt <= 0) return;
       if (e.shield > 0) { const s = Math.min(e.shield, amt); e.shield -= s; amt -= s; }
@@ -485,7 +500,7 @@ export class Game {
     this.alarm.reinforceAt = this.time + 8;
     if (!this.alarm.lkp) { const np = this.players().find((p) => !p.downed && !p.cloaked); if (np) this.alarm.lkp = { x: np.x, y: np.y, z: np.z }; }
     this.alarm.startedAt = this.time;
-    if (this.mission && this.mission.status === 'active' && this.mission.ghost) {
+    if (this.mission && this.mission.status === 'active' && this.mission.ghost && missionHome(this.mission.id) === this.planet) {
       this.mission.ghost = false;
       if (MISSIONS[this.mission.id].ghostBonus) this.note('Alarm raised — ghost bonus lost.', 'warn');
     }
@@ -532,19 +547,24 @@ export class Game {
     const W = this.world, out = [];
     const add = (id, x, z, label, hold = 0, range = 2.4, y) => out.push({ id, x, z, label, hold, range, y });
     if (p.vehicle) { out.push({ id: 'veh:' + p.vehicle, x: p.x, z: p.z, label: 'Dismount', hold: 0, range: 99, force: true }); return out; }
+    if (p.aboard) { if (!this.travel) out.push({ id: 'nav', x: p.x, z: p.z, label: `Open the ${SHIP.name}'s nav console`, hold: 0, range: 99, force: true }); return out; }
     if (p.downed) return out;
-    add('board', W.pois.board.x, W.pois.board.z, 'Browse the job board');
-    const inG = (x, z) => dist2(p.x, p.z, x, z) < 4;
-    if (inG(W.pois.security.x, W.pois.security.z)) add('term:security', W.pois.security.x, W.pois.security.z, this.alarm.active ? 'Slice security: kill the alarm' : 'Slice security: loop the cameras', 4);
-    if (inG(W.pois.vault.x, W.pois.vault.z)) add('term:vault', W.pois.vault.x, W.pois.vault.z, 'Slice the vault console', 6);
-    if (!W.doors.gate.open) add('gatepanel', 127.6, 5, 'Override the gate lock', 1.5, 2.6);
+    if (W.pois.board) add('board', W.pois.board.x, W.pois.board.z, 'Browse the job board');
+    if (W.pois.ship && !this.travel) add('ship', W.pois.ship.x, W.pois.ship.z, `Board the ${SHIP.name}`, 0, 4.2);
+    for (const t of W.terminals) {
+      if (dist2(p.x, p.z, t.x, t.z) > 4) continue;
+      if (t.kind === 'security') add('term:' + t.id, t.x, t.z, this.alarm.active ? 'Slice security: kill the alarm' : 'Slice security: loop the cameras', 4);
+      else if (t.kind === 'vault') add('term:' + t.id, t.x, t.z, 'Slice the vault console', 6);
+      else if (t.kind === 'cryo') add('term:' + t.id, t.x, t.z, 'Slice the cryo-archive console', 6);
+    }
+    if (W.doors.gate && !W.doors.gate.open && W.pois.gatePanel) add('gatepanel', W.pois.gatePanel.x, W.pois.gatePanel.z, 'Override the gate lock', 1.5, 2.6);
     for (const d of Object.values(W.doors)) {
       if (d.open || !d.req) continue;
       if (dist2(p.x, p.z, d.x, d.z) > 3.2) continue;
-      if (d.req === 'hold') add('door:' + d.id, d.x, d.z, 'Cut the cell lock', 2.5, 2.8);
+      if (d.req === 'hold') add('door:' + d.id, d.x, d.z, d.id === 'pen' ? "Cut the pen's lock" : 'Cut the cell lock', 2.5, 2.8);
       else {
         const have = this.party.items[d.req];
-        const need = d.req === 'cellcode' ? 'cell code' : 'vault keycard';
+        const need = REQ_NAMES[d.req] || d.req;
         add('door:' + d.id, d.x, d.z, have ? `Open ${d.label} (${need})` : `${d.label} — locked, needs ${need}`, 0, 3.0);
       }
     }
@@ -555,7 +575,7 @@ export class Game {
       else if (e.kind === K.PICKUP) add('pick:' + e.id, e.x, e.z, e.item === 'keycard' ? 'Take the vault keycard' : 'Take the data core', 0, 2.2);
       else if (e.dead) continue;
       else if (e.kind === K.MERCHANT) add('npc:' + e.id, e.x, e.z, `Trade with ${MERCHANTS[e.merchant].name}`, 0, 3.2);
-      else if (e.kind === K.INFORMANT) add('npc:' + e.id, e.x, e.z, this.mission?.id === 'rescue' && !this.party.items.cellcode ? 'Ask Oru for the cell code' : 'Talk to Oru Dask (jobs)', 0, 2.8);
+      else if (e.kind === K.INFORMANT) add('npc:' + e.id, e.x, e.z, contactLabel(this, e.contact), 0, 2.8);
       else if (e.kind === K.BARTENDER) add('npc:' + e.id, e.x, e.z, 'Order a drink (5cr)', 0, 3.0);
       else if (e.kind === K.CIVILIAN) add('npc:' + e.id, e.x, e.z, 'Talk', 0, 2.2);
       else if (e.kind === K.OFFICER && e.hasKeycard && isUnaware(e) && !e.stagger) {
@@ -599,12 +619,10 @@ export class Game {
         if (!ent) return;
         if (ent.kind === K.MERCHANT) this.sendTo(p.cid, { t: 'ui', ui: 'shop', merchant: ent.merchant });
         else if (ent.kind === K.INFORMANT) {
-          if (this.mission?.id === 'rescue' && this.mission.status === 'active' && !this.party.items.cellcode) {
-            this.party.items.cellcode = true;
-            this.bark(ent, 'Cell code is 7-7-Aurek-9. Ilsa\'s in the detention block, south side. Don\'t get her killed.');
-            this.note('Acquired: detention block cell code', 'objective');
-            this.globalDirty = true;
-          } else this.sendTo(p.cid, { t: 'ui', ui: 'missions' });
+          if (!contactTalk(this, p, ent)) {
+            if (ent.contact === 'oru') this.sendTo(p.cid, { t: 'ui', ui: 'missions' });
+            else this.bark(ent, pick(CONTACT_IDLE[ent.contact] || ['...'], this.rng));
+          }
         } else if (ent.kind === K.BARTENDER) {
           if (p.credits >= 5) { this.addCredits(p, -5); p.focus = Math.min(PLAYER.maxFocus, p.focus + 30); this.bark(ent, pick(['One dune-fire, coming up.', 'Drink fast. Troopers drink here too.', 'On the house — no, wait, five credits.'], this.rng)); }
           else this.bark(ent, 'Come back with credits.');
@@ -624,11 +642,16 @@ export class Game {
           }
           this.noise(d.x, d.y, d.z, 5, p, false);
           this.globalDirty = true;
-        } else this.pnote(p, `Locked. You need the ${d.req === 'cellcode' ? 'cell code' : 'vault keycard'}.`, 'warn');
+        } else this.pnote(p, `Locked. You need the ${REQ_NAMES[d.req] || d.req}.`, 'warn');
         break;
       }
       case 'gatepanel': setDoorOpen(W, 'gate', true); this.event(['door', 'gate', 1]); this.globalDirty = true; break;
+      case 'ship': this.board(p); break;
+      case 'nav': this.sendTo(p.cid, { t: 'ui', ui: 'nav' }); break;
       case 'term': {
+        const term = W.terminals.find((t) => t.id === ref);
+        if (term && terminalUse(this, p, term)) break;
+        if (term && term.kind === 'cryo') { this.pnote(p, 'The archive holds nothing but frozen test subjects. Grim.', 'warn'); break; }
         if (ref === 'security') {
           if (this.alarm.active) this.endAlarm('Alarm silenced — the garrison is confused.');
           this.camerasOn = false;
@@ -678,6 +701,69 @@ export class Game {
     }
   }
 
+  // ---------------------------------------------------------------- the Wayfarer
+
+  board(p) {
+    const W = this.world;
+    if (p.aboard || !W.pois.shipBody) return;
+    if (p.vehicle) this.exitVehicle(p, false);
+    p.aboard = true;
+    p.use = null;
+    const s = W.pois.shipBody;
+    this.teleport(p, s.x, s.y + 3.05, s.z); // rides on the hull; hidden and untouchable while aboard
+    const aboard = this.players().filter((q) => q.aboard).length;
+    this.note(`${p.name} boarded the ${SHIP.name} (${aboard}/${this.players().length} aboard).`, 'info');
+    this.globalDirty = true;
+  }
+  disembark(p) {
+    const W = this.world;
+    p.aboard = false;
+    const r = W.pois.ship, i = this.players().indexOf(p);
+    const x = r.x + (i - 1.5) * 1.3, z = r.z + 1;
+    this.teleport(p, x, groundAt(W, x, z, r.y + 3) + 0.05, z);
+    this.globalDirty = true;
+  }
+  startTravel(p, to) {
+    if (!p.aboard || this.travel) return;
+    if (!PLANETS[to]) return;
+    if (to === this.planet) { this.pnote(p, `You're already on ${PLANETS[to].name}.`, 'warn'); return; }
+    const missing = this.players().filter((q) => !q.aboard);
+    if (missing.length) { this.pnote(p, `Waiting for ${missing.map((q) => q.name).join(', ')} to board.`, 'warn'); return; }
+    this.travel = { from: this.planet, to, at: this.time + 7.5 };
+    this.event(['travel', this.planet, to]);
+    this.note(`The ${SHIP.name} lifts off for ${PLANETS[to].name}.`, 'objective');
+    this.globalDirty = true;
+  }
+  switchPlanet(to) {
+    this.travel = null;
+    missionLeftPlanet(this, this.planet);
+    for (const e of [...this.ents.values()]) if (e.kind !== K.PLAYER) this.removeEnt(e);
+    this.bolts.length = 0;
+    this.corpses = [];
+    this.respawnQueue = [];
+    this._timers = [];
+    this.alarm = { active: false, lastContact: 0, reinforceAt: 0, cause: '', lkp: null };
+    this.planet = to;
+    this.world = createWorld(to);
+    useWorld(this.world);
+    this.speederSpawns = this.world.pois.speeders || [];
+    spawnTown(this);
+    spawnWildlife(this);
+    this.speederSpawns.forEach((s, i) => this.spawnSpeeder(i));
+    this.resetGarrison(this.mission && this.mission.status === 'active' && missionHome(this.mission.id) === to ? this.mission.id : null);
+    for (const [cid] of this.clients) this.sendTo(cid, { t: 'planet', id: to });
+    const sp = this.world.pois.spawn;
+    this.players().forEach((p, i) => {
+      p.aboard = false; p.vehicle = null; p.use = null;
+      const a = i * 1.6;
+      this.teleport(p, sp.x + Math.cos(a) * 2, sp.y + 0.3, sp.z + Math.sin(a) * 2);
+    });
+    this.lastGlobal = '';
+    this.globalDirty = true;
+    this.rebuildSpatial();
+    this.note(`Arrived on ${PLANETS[to].name}. ${PLANETS[to].arrival}`, 'objective');
+  }
+
   exitVehicle(p, forced) {
     const v = this.ents.get(p.vehicle);
     p.vehicle = null;
@@ -715,6 +801,7 @@ export class Game {
   onAccept(p, id) {
     if (!MISSIONS[id]) return;
     const W = this.world;
+    if (!W.pois.board) { this.pnote(p, 'Jobs come from the board in Khet, on Dusk Varo.', 'warn'); return; }
     const nearBoard = dist2(p.x, p.z, W.pois.board.x, W.pois.board.z) < 5 || dist2(p.x, p.z, W.pois.informant.x, W.pois.informant.z) < 5;
     if (!nearBoard) { this.pnote(p, 'Accept jobs at the board or from Oru.', 'warn'); return; }
     if (this.mission && this.mission.status === 'active') { this.pnote(p, 'Finish or abandon the current job first.', 'warn'); return; }
@@ -724,6 +811,8 @@ export class Game {
   // ---------------------------------------------------------------- tick
 
   tick(dt = TICK_DT) {
+    useWorld(this.world);
+    if (this.travel && this.time >= this.travel.at) this.switchPlanet(this.travel.to);
     this.time += dt;
     this.tickN++;
     this.rebuildSpatial();
@@ -841,7 +930,8 @@ export class Game {
     // Any guard actively seeing a player keeps the alarm going
     // The alarm stands down after 30 seconds without anyone actually being seen
     if (this.time - this.alarm.lastContact > STEALTH.alarmQuiet) { this.endAlarm('No sign of the intruders for 30 seconds. The garrison stands down.'); return; }
-    const mastUp = !this.world.destructibles.mast.destroyed;
+    const mast = this.world.destructibles.mast;
+    const mastUp = !mast || !mast.destroyed;
     if (mastUp && this.time >= this.alarm.reinforceAt) {
       this.alarm.reinforceAt = this.time + STEALTH.reinforceInterval;
       const alive = [...this.ents.values()].filter((e) => (e.kind === K.LANCER || e.kind === K.OFFICER) && !e.dead).length;
@@ -850,7 +940,7 @@ export class Game {
         const L = this.alarm.lkp;
         const target = L ? { id: null, ...L } : null;
         for (let i = 0; i < 2; i++) {
-          const g = spawnGuard(this, { name: 'reinforcement', tasks: [{ x: b.x + (i - 0.5) * 3, z: b.z, act: 'look', wait: [2, 4] }, { x: 150, z: 6, act: 'scan', wait: [3, 5] }] }, { x: b.x + (i - 0.5) * 2.5, z: b.z, alerted: true, lkp: target ? { x: target.x, y: target.y, z: target.z } : null });
+          const g = spawnGuard(this, { name: 'reinforcement', tasks: [{ x: b.x + (i - 0.5) * 3, z: b.z, act: 'look', wait: [2, 4] }, { x: (this.world.pois.gate || b).x + 8, z: (this.world.pois.gate || b).z, act: 'scan', wait: [3, 5] }] }, { x: b.x + (i - 0.5) * 2.5, z: b.z, alerted: true, lkp: target ? { x: target.x, y: target.y, z: target.z } : null });
           g.garrison = true;
           g.ai.target = target ? target.id : null;
           g.ai.lastSeen = this.time - 2;
@@ -874,7 +964,9 @@ export class Game {
       m: missionView(this),
       doors, des,
       it: Object.keys(this.party.items).filter((k) => this.party.items[k]),
-      party: this.players().map((p) => [p.id, p.name, p.color, Math.round(p.hp), p.downed ? 1 : 0, Math.round(p.credits), p.cls]),
+      party: this.players().map((p) => [p.id, p.name, p.color, Math.round(p.hp), p.downed ? 1 : 0, Math.round(p.credits), p.cls, p.aboard ? 1 : 0]),
+      pl: this.planet,
+      tr: this.travel ? [this.travel.to, Math.max(0, Math.round((this.travel.at - this.time) * 10) / 10)] : null,
     };
   }
 
@@ -890,6 +982,7 @@ export class Game {
       if (e.drawn) flags |= F.DRAWN;
       if (e.downed) flags |= F.DOWNED;
       if (e.vehicle) flags |= F.DRIVING;
+      if (e.aboard) flags |= F.ABOARD;
       if (e.sprint) flags |= F.SPRINT;
       if (this.time < e.shroudUntil) flags |= F.SHROUD;
       if (!e.onGround) flags |= F.AIR;
@@ -921,7 +1014,7 @@ export class Game {
         hp: Math.round(p.hp), sh: Math.round(p.shield), shm: p.upgrades.shield ? 50 : 0, fo: Math.round(p.focus), ht: r2(p.heat), oh: p.overheated ? 1 : 0,
         gr: p.grenades, md: p.medpacks, cr: p.credits, up: Object.keys(p.upgrades), dn: p.downed ? 1 : 0, bt: r2(p.bleed), vis: r2(p.visibility),
         ia: p.interact ? [p.interact.id, p.interact.label, p.interact.hold, p.use && p.use.id === p.interact.id ? r2(p.use.prog / p.use.need) : 0] : null,
-        veh: p.vehicle || 0, shr: this.time < p.shroudUntil ? r2(p.shroudUntil - this.time) : 0,
+        veh: p.vehicle || 0, ab0: p.aboard ? 1 : 0, shr: this.time < p.shroudUntil ? r2(p.shroudUntil - this.time) : 0,
         cd: [r2(Math.max(0, p.cd.push - this.time)), r2(Math.max(0, p.cd.pull - this.time)), r2(Math.max(0, p.cd.shroud - this.time))],
         ev: this.priv.get(p.id) || [],
         ab: cooldownView(this, p), os: Math.round(p.overshield || 0), cls: p.cls,

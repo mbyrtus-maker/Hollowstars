@@ -2,7 +2,7 @@
 
 A 4-player co-op space-opera action game for the browser. This is the first playable slice of a much bigger game. See [DESIGN.md](DESIGN.md) for the full vision and roadmap.
 
-**Dusk Varo** is a desert world under the boot of the Concordance, a galactic regime that collects tithe from every world in the Outer Reach. Your crew lands outside the township of Khet. You take jobs from a fixer named Oru Dask and make the nearby Concordance garrison bleed: quietly or loudly.
+**Dusk Varo** is a desert world under the boot of the Concordance, a galactic regime that collects tithe from every world in the Outer Reach. Your crew lands outside the township of Khet in the *Wayfarer*, a four-seat light freighter. You take jobs from a fixer named Oru Dask and make the Concordance bleed: quietly or loudly, on Dusk Varo and on two more worlds a jump away.
 
 ## What's in this slice
 
@@ -41,13 +41,19 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   - Townsfolk wander the market, gossip, sit and flee from gunfire.
   - Merchants and Oru greet you, a bartender works the bar, and herds of dune skitters graze and bolt.
 - **Speeder bikes.** Hover physics, boost and forward cannons.
-- **Three multi-part missions.**
+- **Three planets and a ship.** The crew starts with the *Wayfarer*, parked at each world's landing pad. Walk up the ramp to board, then use the nav console to pick a destination on the star map. It launches once the whole crew is aboard.
+  - **Dusk Varo:** desert, the township of Khet, Garrison Seven.
+  - **Thessaly Mire:** a drowned forest with solid trees to hide behind, the stilt village of Lowmarsh, and Harvester Station Kappa.
+  - **Korrun Deep:** an ice shelf in falling snow, the outpost of Rime Hold, ice spires, and Cryo-Vault Sigma.
+- **Five multi-part missions.**
   - *The Silent Key* (rescue and escort)
   - *Ghost in the Vault* (stealth heist: pickpocket the commander, slice the vault)
   - *Scorched Earth* (destroy the comms mast, the fuel tanks and the commander)
+  - *Roots of Rebellion* (off-world: fly to Thessaly, meet Vessa Moor, kill the harvester's power cells, free the captured woodcutters, report back to Oru)
+  - *Cold Storage* (off-world stealth heist: fly to Korrun, get the vault code from Tobin Vale, slice the cryo-archive for the Ashfall Codex, bring it home)
 
-  Ghost bonuses pay extra for finishing without an alarm.
-- **Economy.** Earn credits from missions and bounties. Two merchants sell consumables and permanent upgrades. Progress is saved per callsign on the server, or in your browser when playing solo.
+  Ghost bonuses pay extra for finishing without an alarm. Leaving a world in the middle of a job that happens only there abandons that job.
+- **Economy.** Earn credits from missions and bounties. Four merchants across the three worlds sell consumables and permanent upgrades. Progress is saved per callsign on the server, or in your browser when playing solo.
 - **Camera.** Third person, or first person with a weapon viewmodel (V). There's also a compass, objective waypoints, teammate tags, pings, chat and a revive system.
 
 ## Play on GitHub Pages (no server needed)
@@ -113,7 +119,9 @@ On a speeder: W/S for throttle, steer with the mouse (or A/D), Shift to boost, S
 shared/            Runs on both the server and the browser
   config.js        Tuning, items, missions, protocol constants
   math.js          Math, RNG, noise
-  world.js         Terrain heightfield, layout, collision, raycasts, navigation grid and A*
+  world.js         Per-planet terrain, Dusk Varo's layout, collision, raycasts, navigation grid and A*
+  layouts.js       Thessaly Mire and Korrun Deep, built from the same kit
+  planets.js       Planet roster (names, looks, star-map positions) and the Wayfarer
   vehicles.js      Speeder physics (shared for client-side prediction)
   sim/game.js      The authoritative game room: players, netcode validation, interactions, economy, alarms
   sim/ai.js        Guard perception and combat, civilians, merchants, prisoner, wildlife
@@ -130,9 +138,10 @@ tools/             Build script, simulation soak test, end-to-end mission test
 ## Tests
 
 ```bash
-node tools/missions-test.js   # plays all three missions end-to-end against the real simulation
+node tools/missions-test.js   # plays the three Dusk Varo missions end-to-end against the real simulation
+node tools/travel-test.js     # checks every planet's layout, flies the Wayfarer, plays both off-world missions
 node tools/classes-test.js    # exercises every class ability
-node tools/soak.js 240        # 4 scripted bots for 4 minutes; reports tick cost and errors
+node tools/soak.js 240 korrun # 4 scripted bots for 4 minutes on a planet; reports tick cost and errors
 ```
 
 All art is procedural geometry with procedurally generated textures, normal and roughness maps, and all audio is synthesized. There are no asset files to license.

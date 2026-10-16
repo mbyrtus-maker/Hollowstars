@@ -13,6 +13,7 @@ export function mat(color, opts = {}) {
   if (!m) {
     const tx = opts.tex ? texSet(opts.tex, opts.rep || 1) : {};
     m = new THREE.MeshStandardMaterial({ color, roughness: opts.tex ? 1 : opts.rough ?? 0.75, metalness: opts.metal ?? 0.05, flatShading: !opts.tex, emissive: opts.emissive ?? 0x000000, emissiveIntensity: opts.ei ?? 1, transparent: !!opts.transparent, opacity: opts.opacity ?? 1, ...tx });
+    m.userData.cached = true;
     matCache.set(key, m);
   }
   return m;

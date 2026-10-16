@@ -45,6 +45,7 @@ function mkNPC(game, kind, x, z, extra = {}) {
 const T = (x, z, act = 'look', wait = [1.5, 3.5], face) => ({ x, z, act, wait, face });
 
 export function garrisonRoster(W) {
+  if (W.roster) return W.roster;
   const towerYaw = (tx, tz) => yawTo(170, 0, tx, tz);
   const roster = [
     { name: 'gate-l', post: true, tasks: [T(121.6, -4.6, 'scan', [5, 9], Math.PI / 2)] },
@@ -76,7 +77,7 @@ export function spawnGuard(game, def, opts = {}) {
   const e = mkNPC(game, officer ? K.OFFICER : K.LANCER, opts.x ?? t0.x, opts.z ?? t0.z, {
     y, hp: officer ? 140 : 60, yaw: t0.face ?? 0,
     ai: { tasks: def.tasks, post: !!def.post || !!def.tower, tower: !!def.tower, name: def.name, garrison: !def.road, burst: 0, shotT: 0, strafe: 1, strafeT: 0 },
-    props: { hostile: true, officer, hasKeycard: officer },
+    props: { hostile: true, officer, hasKeycard: officer && game.world.planet === 'duskvaro' },
   });
   if (opts.alerted) {
     e.ai.state = 'combat'; e.ai.alert = 2; e.ai.sus = 1;
@@ -88,21 +89,35 @@ export function spawnGuard(game, def, opts = {}) {
 export function spawnTown(game) {
   const W = game.world, rng = game.rng;
   const spots = W.civSpots;
-  for (let i = 0; i < 11; i++) {
+  const homes = spots.filter((p) => p.home);
+  for (let i = 0; i < (W.civCount ?? 10) && spots.length; i++) {
     const s = spots[Math.floor(rng() * spots.length)];
     mkNPC(game, K.CIVILIAN, s.x + (rng() - 0.5) * 2, s.z + (rng() - 0.5) * 2, {
-      hp: 40, ai: { home: spots.filter((p) => p.home)[i % 10], wait: rng() * 4 }, props: { variant: Math.floor(rng() * 1000) },
+      hp: 40, ai: { home: homes[i % Math.max(1, homes.length)], wait: rng() * 4 }, props: { variant: Math.floor(rng() * 1000) + game.world.planet.length * 97 },
     });
   }
-  mkNPC(game, K.MERCHANT, W.pois.teska.x, W.pois.teska.z, { hp: 80, yaw: W.pois.teska.yaw, ai: { baseYaw: W.pois.teska.yaw }, props: { merchant: 'teska', variant: 7 } });
-  mkNPC(game, K.MERCHANT, W.pois.bram.x, W.pois.bram.z, { hp: 80, yaw: W.pois.bram.yaw, ai: { baseYaw: W.pois.bram.yaw }, props: { merchant: 'bram', variant: 13 } });
-  mkNPC(game, K.INFORMANT, W.pois.informant.x, W.pois.informant.z, { hp: 80, yaw: W.pois.informant.yaw, ai: { baseYaw: W.pois.informant.yaw }, props: { variant: 21 } });
-  mkNPC(game, K.BARTENDER, W.pois.bartender.x, W.pois.bartender.z, { hp: 80, yaw: W.pois.bartender.yaw, ai: { baseYaw: W.pois.bartender.yaw, task: 0 }, props: { variant: 33 } });
+  let v = 7;
+  for (const n of W.npcs) {
+    v += 6;
+    if (n.kind === 'merchant') mkNPC(game, K.MERCHANT, n.x, n.z, { hp: 80, yaw: n.yaw, ai: { baseYaw: n.yaw }, props: { merchant: n.merchant, variant: v } });
+    else if (n.kind === 'informant') mkNPC(game, K.INFORMANT, n.x, n.z, { hp: 80, yaw: n.yaw, ai: { baseYaw: n.yaw }, props: { contact: n.contact, variant: v + 8 } });
+    else if (n.kind === 'bartender') mkNPC(game, K.BARTENDER, n.x, n.z, { hp: 80, yaw: n.yaw, ai: { baseYaw: n.yaw, task: 0, spots: n.spots }, props: { variant: 33 } });
+  }
+}
+
+// Captives belong to the site, so they come back whenever the garrison resets
+export function spawnCaptives(game) {
+  const rng = game.rng;
+  for (const n of game.world.npcs) {
+    if (n.kind !== 'civilian' || !n.captive) continue;
+    const e = mkNPC(game, K.CIVILIAN, n.x, n.z, { hp: 40, yaw: n.yaw, ai: { captive: true, home: n.home, wait: 0 }, props: { variant: Math.floor(rng() * 1000), captive: true } });
+    e.garrison = true;
+  }
 }
 
 export function spawnWildlife(game) {
   const rng = game.rng;
-  const herds = [{ x: -40, z: -50 }, { x: 10, z: 95 }, { x: 100, z: -70 }];
+  const herds = game.world.herds || [];
   game.herds = herds.map((h, i) => ({ ...h, tx: h.x, tz: h.z, t: 0, id: i }));
   game.herds.forEach((h) => {
     for (let i = 0; i < 4; i++) {
@@ -184,7 +199,7 @@ function bestStimulus(game, e, isCamera) {
   let best = null, bestRate = 0;
   for (const p of game.players()) {
     if (p.dead || p.downed) continue;
-    if (p.cloaked) continue; // a cloaked player cannot be seen, alarm or not
+    if (p.cloaked || p.aboard) continue; // a cloaked player cannot be seen, alarm or not
     if (!isCamera && ai.ignore && ai.ignore.id === p.id && game.time < ai.ignore.until) continue;
     const chest = p.y + (p.crouch ? 0.75 : 1.3);
     const dx = p.x - e.x, dz = p.z - e.z, dy = chest - eye(e);
@@ -302,7 +317,7 @@ function guardShoot(game, e, p, dt) {
 function nearestPlayer(game, x, z, maxD = 1e9) {
   let best = null, bd = maxD;
   for (const p of game.players()) {
-    if (p.dead || p.downed) continue;
+    if (p.dead || p.downed || p.aboard) continue;
     const d = dist2(x, z, p.x, p.z);
     if (d < bd) { bd = d; best = p; }
   }
@@ -527,6 +542,15 @@ function updateCivilian(game, e, dt) {
   const ai = e.ai, W = game.world;
   ai.repathCD = (ai.repathCD || 0) - dt;
   e.flags = 0;
+  if (ai.captive) {
+    const pen = W.doors.pen;
+    if (pen && !pen.open) { e.flags |= F.CROUCH; brake(game, e, dt); if (game.rng() < dt * 0.04) game.bark(e, pick(['Please... get us out.', 'They work us till we drop.', 'The overseer has the only key — or a cutter.'], game.rng)); return; }
+    // freed: run home to the village, then live there
+    if (!ai.freedAt) { ai.freedAt = game.time; game.bark(e, pick(['Thank you! Run!', 'Back to Lowmarsh!', 'You came for us!'], game.rng)); }
+    e.flags |= F.FLEE;
+    if (moveTo(game, e, ai.home.x, ai.home.z, 5.4, dt, 4) || game.time - ai.freedAt > 90) { ai.captive = false; e.captive = false; }
+    return;
+  }
   if (ai.fleeUntil && game.time < ai.fleeUntil) {
     e.flags |= F.FLEE;
     const home = ai.home || W.civSpots[0];
@@ -599,7 +623,7 @@ function updateBartender(game, e, dt) {
   const ai = e.ai;
   ai.repathCD = (ai.repathCD || 0) - dt;
   e.flags = F.WORK;
-  const spots = [{ x: -196.8, z: 27.5 }, { x: -196.8, z: 31 }, { x: -196.8, z: 34.5 }];
+  const spots = ai.spots || [{ x: e.x, z: e.z }];
   if (ai.wait > 0) { ai.wait -= dt; brake(game, e, dt); faceToward(e, -Math.PI / 2, dt, 3); return; }
   e.flags = 0;
   const s = spots[ai.task % spots.length];
@@ -685,11 +709,12 @@ export function updateHerds(game, dt) {
     h.t -= dt;
     if (h.t <= 0) {
       h.t = 12 + game.rng() * 18;
-      h.tx = clamp(h.x + (game.rng() - 0.5) * 60, -120, 110);
-      h.tz = clamp(h.z + (game.rng() - 0.5) * 60, -130, 130);
-      // keep herds out of the garrison and town
-      if (h.tx > 100) h.tx = 95;
-      if (h.tx < -100 && Math.abs(h.tz - 40) < 80) h.tx = -95;
+      const [bx0, bx1, bz0, bz1] = game.world.critterBounds || [-120, 110, -130, 130];
+      h.tx = clamp(h.x + (game.rng() - 0.5) * 60, bx0, bx1);
+      h.tz = clamp(h.z + (game.rng() - 0.5) * 60, bz0, bz1);
+      // keep herds out of the settlement
+      const tw = game.world.regions.town;
+      if (tw && dist2(h.tx, h.tz, tw.x, tw.z) < tw.r + 15) { h.tx = h.x; h.tz = h.z; }
     }
     const d = dist2(h.x, h.z, h.tx, h.tz);
     if (d > 0.5) { h.x += ((h.tx - h.x) / d) * 1.2 * dt; h.z += ((h.tz - h.z) / d) * 1.2 * dt; }

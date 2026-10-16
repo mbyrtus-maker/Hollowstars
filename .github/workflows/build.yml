@@ -23,6 +23,7 @@ jobs:
         run: |
           node tools/missions-test.js
           node tools/classes-test.js
+          node tools/travel-test.js
       - name: Build the game
         run: npm run build -- --single
       - name: Commit the rebuilt page if it changed

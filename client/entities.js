@@ -103,7 +103,7 @@ export class Entities {
       const fl = s.flags ?? v.flags;
       const m = v.model;
       const cd = cam ? Math.hypot(v.x - cam.position.x, v.z - cam.position.z) : 0;
-      m.visible = cd < 190;
+      m.visible = cd < 190 && !(v.flags & F.ABOARD);
       if (!m.visible) continue;
       const far = cd > 45;
       if (far !== v.far) { v.far = far; m.traverse((o) => { if (o.isMesh && o.material.blending !== THREE.AdditiveBlending) o.castShadow = !far; }); }
@@ -159,7 +159,8 @@ export class Entities {
       const grounded = !(fl & (F.DEAD | F.DOWNED | F.DRIVING | F.AIR));
       const L = this.audio.listener;
       if (grounded && speed > 0.6 && Math.hypot(v.x - L.x, v.z - L.z) < 24) {
-        const hard = v.x > 124 && v.x < 216 && v.z > -36 && v.z < 36;
+        const gr = this.hardRegion;
+        const hard = !!gr && v.x > gr.minX - 1 && v.x < gr.maxX + 1 && v.z > gr.minZ - 1 && v.z < gr.maxZ + 1;
         const crouched = !!(fl & F.CROUCH);
         const loud = crouched ? 0.1 : speed > 7 ? 1 : speed > 3.5 ? 0.6 : 0.4;
         this.audio.footstep(v.x, v.y, v.z, hard, isMe ? loud : loud * 0.8);

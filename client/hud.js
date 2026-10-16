@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { K, F, MISSIONS, ITEMS, MERCHANTS, PLAYER_COLORS, POWERS, CLASSES } from '../shared/config.js';
 import { clamp, wrapAngle, yawTo, dist2 } from '../shared/math.js';
+import { PLANETS, PLANET_ORDER, SHIP } from '../shared/planets.js';
 
 const $ = (id) => document.getElementById(id);
 const v3 = new THREE.Vector3();
@@ -175,23 +176,24 @@ export class HUD {
     this.el['alarm-banner'].classList.toggle('hidden', !g.al);
     this.el['cam-banner'].classList.toggle('hidden', !!g.cam);
     // mission tracker
-    const key = JSON.stringify(g.m);
+    const key = JSON.stringify([g.m, g.pl]);
     if (key !== this.lastMissionKey) {
       this.lastMissionKey = key;
       const m = g.m;
       const box = this.el['mission-box'];
-      if (!m) box.innerHTML = `<div class="mb-name">No active job</div><div class="mb-hint">Find the job board in the Khet plaza, or talk to Oru Dask in the cantina.</div>`;
+      if (!m) box.innerHTML = `<div class="mb-name">No active job</div><div class="mb-hint">${g.pl && g.pl !== 'duskvaro' ? `Jobs come from Oru Dask on Dusk Varo. Board the ${SHIP.name} to fly back.` : 'Find the job board in the Khet plaza, or talk to Oru Dask in the cantina.'}</div>`;
       else {
         const info = MISSIONS[m.id];
         const steps = m.steps.map(([text, done], i) => `<div class="mb-step ${done ? 'done' : i === m.step ? 'cur' : ''}"><span class="bx"></span><span>${esc(text)}</span></div>`).join('');
         const status = m.status === 'complete' ? `<div class="mb-ghost">Complete — +${m.reward}cr each</div>` : m.status === 'failed' ? `<div class="mb-ghost lost">Failed: ${esc(m.reason || '')}</div>` : info.ghostBonus ? `<div class="mb-ghost ${m.ghost ? '' : 'lost'}">Ghost bonus +${info.ghostBonus}cr: no alarms</div>` : '';
-        box.innerHTML = `<div class="mb-name">${esc(info.name)}</div><div class="mb-type">${esc(info.type)}, from ${esc(info.giver)}, pays ${info.reward}cr</div>${steps}${status}`;
+        const where = m.home && m.home !== 'duskvaro' ? `<div class="mb-where">${esc(PLANETS[m.home].name)}${g.pl === m.home ? ' (you are here)' : ''}</div>` : '';
+        box.innerHTML = `<div class="mb-name">${esc(info.name)}</div><div class="mb-type">${esc(info.type)}, from ${esc(info.giver)}, pays ${info.reward}cr</div>${where}${steps}${status}`;
       }
     }
     const pk = JSON.stringify(g.party);
     if (pk !== this.lastPartyKey) {
       this.lastPartyKey = pk;
-      this.el.party.innerHTML = g.party.map(([id, name, color, hp, down]) => `<div class="pm ${down ? 'down' : ''}"><i style="background:${PLAYER_COLORS[color]}"></i><span>${esc(name)}${id === myId ? ' (you)' : ''}</span><div class="b"><div style="width:${down ? 100 : clamp(hp, 0, 100)}%"></div></div></div>`).join('');
+      this.el.party.innerHTML = g.party.map(([id, name, color, hp, down, cr, cls, aboard]) => `<div class="pm ${down ? 'down' : ''}"><i style="background:${PLAYER_COLORS[color]}"></i><span>${esc(name)}${id === myId ? ' (you)' : ''}${aboard ? ' <em class="aboard">aboard</em>' : ''}</span><div class="b"><div style="width:${down ? 100 : clamp(hp, 0, 100)}%"></div></div></div>`).join('');
     }
   }
 
@@ -333,9 +335,9 @@ export class HUD {
   // ---------------------------------------------------------------- modals
   openMissions(g, send, onClose) {
     const active = g && g.m && g.m.status === 'active' ? g.m.id : null;
-    const html = `<h2>Jobs in Khet</h2><p class="sub">Oru Dask brokers work against the Concordance. Rewards are paid to everyone in the crew.</p>
+    const html = `<h2>Jobs in Khet</h2><p class="sub">Oru Dask brokers work against the Concordance. Rewards are paid to everyone in the crew. Off-world jobs need the ${SHIP.name}.</p>
       <div class="jobs">${Object.entries(MISSIONS).map(([id, m]) => `
-        <div class="job ${active === id ? 'active' : ''}"><div><h3>${esc(m.name)}</h3><div class="meta">${esc(m.type)}${m.ghostBonus ? `, ghost bonus ${m.ghostBonus}cr` : ''}</div></div>
+        <div class="job ${active === id ? 'active' : ''}"><div><h3>${esc(m.name)}</h3><div class="meta">${m.planet ? `<span class="offworld" style="--pc:${PLANETS[m.planet].color}">${esc(PLANETS[m.planet].name)}</span> ` : ''}${esc(m.type)}${m.ghostBonus ? `, ghost bonus ${m.ghostBonus}cr` : ''}</div></div>
         <div class="pay">${m.reward}cr</div><p>${esc(m.brief)}</p>
         ${active === id ? `<button data-abandon="1">Abandon job</button>` : `<button data-accept="${id}" ${active ? 'disabled' : ''}>Take this job</button>`}</div>`).join('')}</div>`;
     this.openModal(html, onClose);
@@ -361,6 +363,69 @@ export class HUD {
     };
     this.openModal('', onClose);
     render();
+  }
+  // The Wayfarer's nav console: a star map of the Reach, who's aboard, and the launch control
+  openNav(getG, myId, send, onClose) {
+    let sel = null;
+    let key = '';
+    const render = (force) => {
+      const g = getG();
+      if (!g) return;
+      const k = JSON.stringify([g.party, g.tr ? g.tr[0] : null, sel, g.pl, g.m && g.m.away]);
+      if (!force && k === key) return;
+      key = k;
+      const here = g.pl;
+      const away = g.m && g.m.status === 'active' ? g.m.away : null;
+      if (!sel) sel = away && away !== here ? away : PLANET_ORDER.find((id) => id !== here);
+      const crew = g.party.map(([id, name, color, hp, down, cr, cls, aboard]) => ({ id, name, color, aboard: !!aboard }));
+      const missing = crew.filter((c) => !c.aboard);
+      const P = PLANETS[sel], H = PLANETS[here];
+      const W = 420, Hh = 300;
+      const pt = (id) => [PLANETS[id].map[0] * W, PLANETS[id].map[1] * Hh];
+      const [hx, hy] = pt(here), [sx, sy] = pt(sel);
+      const stars = Array.from({ length: 70 }, (_, i) => { const a = Math.sin(i * 91.7) * 43758.5, b = Math.sin(i * 12.9) * 9631.1; return `<circle cx="${((a - Math.floor(a)) * W).toFixed(1)}" cy="${((b - Math.floor(b)) * Hh).toFixed(1)}" r="${i % 9 === 0 ? 1.3 : 0.7}" class="st"/>`; }).join('');
+      const nodes = PLANET_ORDER.map((id) => {
+        const [x, y] = pt(id);
+        const p = PLANETS[id];
+        return `<g class="pl ${id === sel ? 'sel' : ''} ${id === here ? 'here' : ''}" data-pl="${id}" tabindex="0" role="button" aria-label="${esc(p.name)}">
+          <circle cx="${x}" cy="${y}" r="22" class="hit"/>
+          <circle cx="${x}" cy="${y}" r="${id === here ? 11 : 9}" fill="${p.color}" class="orb"/>
+          ${id === here ? `<circle cx="${x}" cy="${y}" r="17" class="ring"/>` : ''}
+          ${id === away ? `<circle cx="${x}" cy="${y}" r="21" class="job"/>` : ''}
+          <text x="${x}" y="${y + 34}" text-anchor="middle">${esc(p.name)}</text></g>`;
+      }).join('');
+      const html = `<h2>${esc(SHIP.name)}: nav console</h2><p class="sub">${esc(SHIP.model)}. Seats ${SHIP.seats}. Parked at ${esc(H.settlement)} on ${esc(H.name)}.</p>
+        <div class="nav">
+          <svg viewBox="0 0 ${W} ${Hh}" class="starmap" aria-label="Star map of the Hollow Reach">
+            ${stars}
+            <line x1="${hx}" y1="${hy}" x2="${sx}" y2="${sy}" class="route"/>
+            ${nodes}
+          </svg>
+          <div class="nav-side">
+            <div class="dest" style="--pc:${P.color}"><h3>${esc(P.name)}</h3><p>${esc(P.blurb)}</p>
+              <dl><dt>Settlement</dt><dd>${esc(P.settlement)}</dd><dt>Concordance site</dt><dd>${esc(P.site)}</dd></dl>
+              ${away === sel ? '<div class="jobtag">Your current job is here</div>' : ''}</div>
+            <div class="crew"><b>Crew aboard ${crew.length - missing.length} of ${crew.length}</b>
+              ${crew.map((c) => `<div class="cm ${c.aboard ? 'on' : ''}"><i style="background:${PLAYER_COLORS[c.color]}"></i>${esc(c.name)}${c.id === myId ? ' (you)' : ''}<span>${c.aboard ? 'aboard' : 'on the ground'}</span></div>`).join('')}</div>
+            ${g.tr ? `<div class="launching">Jumping to ${esc(PLANETS[g.tr[0]].name)}…</div>` : `<button class="cta" data-launch ${missing.length || sel === here ? 'disabled' : ''}>${sel === here ? "You're here" : missing.length ? `Waiting for ${esc(missing.map((c) => c.name).join(', '))}` : `Launch for ${esc(P.name)}`}</button>`}
+            <button class="ghost" data-disembark ${g.tr ? 'disabled' : ''}>Disembark</button>
+          </div>
+        </div>`;
+      this.el['modal-body'].innerHTML = html;
+      const body = this.el['modal-body'];
+      body.querySelectorAll('[data-pl]').forEach((n) => {
+        const pick = () => { if (n.dataset.pl !== here) { sel = n.dataset.pl; render(true); } };
+        n.addEventListener('click', pick);
+        n.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') pick(); });
+      });
+      const L = body.querySelector('[data-launch]');
+      if (L) L.addEventListener('click', () => { send({ t: 'travel', to: sel }); setTimeout(() => render(true), 150); });
+      body.querySelector('[data-disembark]').addEventListener('click', () => { send({ t: 'disembark' }); this.closeModal(); });
+    };
+    this.openModal('', onClose);
+    render(true);
+    clearInterval(this._navT);
+    this._navT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.nav')) { clearInterval(this._navT); return; } render(); }, 700);
   }
   openModal(html, onClose) {
     this.el['modal-body'].innerHTML = html;

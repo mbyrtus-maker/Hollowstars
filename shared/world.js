@@ -23,17 +23,15 @@ export const SUN_DIR = (() => {
 
 // ---------------------------------------------------------------- terrain
 
-const ZONES = [
+const ZONES_DUSK = [
   { name: 'Khet', x: -160, z: 40, r: 68, f: 26, h: 6 },
   { name: 'Khet Landing', x: -228, z: 62, r: 22, f: 16, h: 6 },
   { name: 'Garrison Seven', x: 170, z: 0, r: 70, f: 22, h: 10 },
   { name: 'Ridge LZ', x: 78, z: 66, r: 14, f: 14, h: 11 },
 ];
-export const ROAD = [
-  [-100, 38], [-40, 30], [10, 20], [42, 15], [80, 8], [118, 1], [126, 0],
-];
+const ROAD_DUSK = [[-100, 38], [-40, 30], [10, 20], [42, 15], [80, 8], [118, 1], [126, 0]];
 
-function rawHeight(x, z) {
+function rawDusk(x, z) {
   let h = 7 + fbm(x / 140, z / 140, 4, 3) * 9;
   h += fbm(x / 38, z / 38, 3, 11) * 2.2; // dunes
   // Mountain ring bounding the play space
@@ -56,19 +54,61 @@ function rawHeight(x, z) {
   return h;
 }
 
-function shapedHeight(x, z) {
-  let h = rawHeight(x, z);
+// Thessaly Mire: low, waterlogged jungle with forested hills around the edge
+function rawThessaly(x, z) {
+  let h = 3.2 + fbm(x / 80, z / 80, 4, 301) * 5 + fbm(x / 22, z / 22, 3, 311) * 1.2;
+  const edge = Math.max(Math.abs(x), Math.abs(z));
+  h += smoothstep(230, 370, edge) * (45 + fbm(x / 45, z / 45, 3, 321) * 25);
+  const hills = [[20, 110, 40, 16], [-40, -110, 36, 14], [190, 110, 30, 12], [-230, 120, 34, 18], [60, -120, 30, 10]];
+  for (const [mx, mz, r, mh] of hills) h += (1 - smoothstep(r * 0.4, r, dist2(x, z, mx, mz))) * mh * (0.8 + 0.4 * fbm(x / 15, z / 15, 2, 331));
+  return h;
+}
+const ZONES_THESSALY = [
+  { name: 'Lowmarsh', x: -120, z: 30, r: 46, f: 20, h: 3.6 },
+  { name: 'Lowmarsh Landing', x: -180, z: -25, r: 20, f: 14, h: 4.2 },
+  { name: 'Harvester Station Kappa', x: 120, z: -10, r: 58, f: 22, h: 5 },
+];
+const ROAD_THESSALY = [[-82, 22], [-20, 10], [40, 0], [86, -8], [92, -9]];
+
+// Korrun Deep: an ice shelf with pressure ridges, a frozen sea to the south
+function rawKorrun(x, z) {
+  let h = 9 + fbm(x / 120, z / 120, 4, 401) * 9;
+  const r = 1 - Math.abs(fbm(x / 45, z / 45, 3, 411) * 2);
+  h += Math.pow(Math.max(0, r), 4) * 7; // pressure ridges
+  const edge = Math.max(Math.abs(x), Math.abs(z));
+  h += smoothstep(240, 380, edge) * (80 + fbm(x / 50, z / 50, 3, 421) * 30);
+  // frozen sea
+  const sea = 1 - smoothstep(-40, 30, z);
+  h = lerp(h, 2 + fbm(x / 30, z / 30, 2, 431) * 0.4, sea * 0.9);
+  return h;
+}
+const ZONES_KORRUN = [
+  { name: 'Rime Hold', x: -130, z: 70, r: 44, f: 20, h: 11 },
+  { name: 'Rime Landing', x: -190, z: 25, r: 20, f: 14, h: 11 },
+  { name: 'Cryo-Vault Sigma', x: 130, z: 40, r: 58, f: 22, h: 13 },
+];
+const ROAD_KORRUN = [[-95, 62], [-20, 52], [50, 44], [93, 40]];
+
+const TERRAIN = {
+  duskvaro: { raw: rawDusk, zones: ZONES_DUSK, road: ROAD_DUSK, roadH: [6, 10] },
+  thessaly: { raw: rawThessaly, zones: ZONES_THESSALY, road: ROAD_THESSALY, roadH: [3.8, 5], water: 2.6 },
+  korrun: { raw: rawKorrun, zones: ZONES_KORRUN, road: ROAD_KORRUN, roadH: [11, 13] },
+};
+export const ROAD = ROAD_DUSK;
+
+function shapedHeight(T, x, z) {
+  let h = T.raw(x, z);
   // Road flattening
   let best = 1e9, bestT = 0;
-  for (let i = 0; i < ROAD.length - 1; i++) {
-    const [ax, az] = ROAD[i], [bx, bz] = ROAD[i + 1];
+  for (let i = 0; i < T.road.length - 1; i++) {
+    const [ax, az] = T.road[i], [bx, bz] = T.road[i + 1];
     const d = distPointSegXZ(x, z, ax, az, bx, bz);
-    if (d < best) { best = d; bestT = (i + clamp(((x - ax) * (bx - ax) + (z - az) * (bz - az)) / ((bx - ax) ** 2 + (bz - az) ** 2), 0, 1)) / (ROAD.length - 1); }
+    if (d < best) { best = d; bestT = (i + clamp(((x - ax) * (bx - ax) + (z - az) * (bz - az)) / ((bx - ax) ** 2 + (bz - az) ** 2), 0, 1)) / (T.road.length - 1); }
   }
-  const roadH = lerp(6, 10, smoothstep(0.1, 1, bestT)) + Math.sin(bestT * Math.PI) * 1.5;
+  const roadH = lerp(T.roadH[0], T.roadH[1], smoothstep(0.1, 1, bestT)) + Math.sin(bestT * Math.PI) * 1.5;
   const rw = 1 - smoothstep(4, 12, best);
   h = lerp(h, roadH, rw);
-  for (const zn of ZONES) {
+  for (const zn of T.zones) {
     const d = dist2(x, z, zn.x, zn.z);
     const w = 1 - smoothstep(zn.r, zn.r + zn.f, d);
     h = lerp(h, zn.h, w);
@@ -76,22 +116,28 @@ function shapedHeight(x, z) {
   return h;
 }
 
-let HF = null;
-export function heightfield() {
-  if (HF) return HF;
-  HF = new Float32Array((HF_N + 1) * (HF_N + 1));
-  for (let iz = 0; iz <= HF_N; iz++) {
-    for (let ix = 0; ix <= HF_N; ix++) {
-      HF[iz * (HF_N + 1) + ix] = shapedHeight(-WORLD_HALF + ix * HF_CELL, -WORLD_HALF + iz * HF_CELL);
-    }
+const HF_CACHE = new Map();
+function buildHeightfield(planet) {
+  if (HF_CACHE.has(planet)) return HF_CACHE.get(planet);
+  const T = TERRAIN[planet];
+  const hf = new Float32Array((HF_N + 1) * (HF_N + 1));
+  for (let iz = 0; iz <= HF_N; iz++) for (let ix = 0; ix <= HF_N; ix++) {
+    hf[iz * (HF_N + 1) + ix] = shapedHeight(T, -WORLD_HALF + ix * HF_CELL, -WORLD_HALF + iz * HF_CELL);
   }
-  return HF;
+  HF_CACHE.set(planet, hf);
+  return hf;
 }
+
+// One world is active at a time per thread (the server switches before each room's tick)
+let ACTIVE = null;
+export function useWorld(W) { ACTIVE = W; }
+export function activeWorld() { return ACTIVE; }
+export function heightfield() { return ACTIVE.hf; }
 
 // Exact height of the rendered triangle mesh at (x, z).
 // Cell triangulation: (0,0)(0,1)(1,0) and (1,0)(0,1)(1,1) in (ix, iz) order.
 export function terrainHeight(x, z) {
-  const hf = HF || heightfield();
+  const hf = ACTIVE.hf;
   const gx = clamp((x + WORLD_HALF) / HF_CELL, 0, HF_N - 1e-4);
   const gz = clamp((z + WORLD_HALF) / HF_CELL, 0, HF_N - 1e-4);
   const ix = Math.floor(gx), iz = Math.floor(gz);
@@ -104,9 +150,10 @@ export function terrainHeight(x, z) {
 }
 
 export function roadDistance(x, z) {
+  const road = ACTIVE.road;
   let best = 1e9;
-  for (let i = 0; i < ROAD.length - 1; i++) {
-    const [ax, az] = ROAD[i], [bx, bz] = ROAD[i + 1];
+  for (let i = 0; i < road.length - 1; i++) {
+    const [ax, az] = road[i], [bx, bz] = road[i + 1];
     best = Math.min(best, distPointSegXZ(x, z, ax, az, bx, bz));
   }
   return best;
@@ -114,9 +161,17 @@ export function roadDistance(x, z) {
 
 // ---------------------------------------------------------------- layout
 
-export function createWorld() {
-  heightfield();
+const LAYOUTS = { duskvaro: (W) => buildLayout(W) };
+export function registerLayout(planet, fn) { LAYOUTS[planet] = fn; }
+
+export function createWorld(planet = 'duskvaro') {
+  if (!TERRAIN[planet]) planet = 'duskvaro';
+  const T = TERRAIN[planet];
   const W = {
+    planet,
+    hf: buildHeightfield(planet),
+    road: T.road,
+    water: T.water ?? null,
     boxes: [],
     grid: new Map(),
     gridCell: 8,
@@ -127,18 +182,37 @@ export function createWorld() {
     pois: {},
     civSpots: [],
     guardPosts: [],
-    zones: ZONES,
+    zones: T.zones,
     regions: {},
     decor: [],
+    npcs: [],
+    herds: [],
+    terminals: [],
+    towers: [],
     stamp: 1,
   };
-  buildLayout(W);
+  useWorld(W);
+  LAYOUTS[planet](W);
   for (const b of W.boxes) indexBox(W, b);
   buildNav(W);
   return W;
 }
 
-function addBox(W, minX, minY, minZ, maxX, maxY, maxZ, mat, opts = {}) {
+// The crew's ship, the Wayfarer: collision hull plus a decor marker the client renders.
+// Faces -Z with the boarding ramp at the rear (+Z) when yaw = 0; yaw may be 0 or PI.
+export function placeShip(W, x, y, z, yaw = 0) {
+  const s = Math.abs(yaw) > 1 ? -1 : 1;
+  box(W, x, y, z, 4.4, 3.0, 11, MAT.HULL, { render: false, tag: 'ship' });
+  for (const side of [-1, 1]) {
+    box(W, x + side * 3.6, y + 0.9, z + s * 1.5, 3.2, 0.5, 4.2, MAT.HULL, { render: false, tag: 'ship' });
+    box(W, x + side * 3.0, y + 0.4, z + s * 3.6, 1.7, 1.7, 4.6, MAT.HULL, { render: false, tag: 'ship' });
+  }
+  W.decor.push({ type: 'ship', x, y, z, yaw });
+  W.pois.ship = { x, z: z + s * 7.2, y };
+  W.pois.shipBody = { x, y, z, yaw };
+}
+
+export function addBox(W, minX, minY, minZ, maxX, maxY, maxZ, mat, opts = {}) {
   const b = {
     id: W.boxes.length, minX, minY, minZ, maxX, maxY, maxZ, mat,
     solid: opts.solid !== false, render: opts.render !== false, tag: opts.tag || null,
@@ -147,7 +221,7 @@ function addBox(W, minX, minY, minZ, maxX, maxY, maxZ, mat, opts = {}) {
   return b;
 }
 // Box from centre, base height, and size
-function box(W, cx, y0, cz, w, h, d, mat, opts) {
+export function box(W, cx, y0, cz, w, h, d, mat, opts) {
   return addBox(W, cx - w / 2, y0, cz - d / 2, cx + w / 2, y0 + h, cz + d / 2, mat, opts);
 }
 
@@ -181,7 +255,7 @@ export function queryBoxes(W, minX, minZ, maxX, maxZ, cb) {
 }
 
 // A rectangular building with walls, a door gap and a roof. Sides: n (-z), s (+z), w (-x), e (+x)
-function building(W, x0, z0, x1, z1, y0, h, mat, doorSide, opts = {}) {
+export function building(W, x0, z0, x1, z1, y0, h, mat, doorSide, opts = {}) {
   const t = opts.wall || 0.6;
   const dw = opts.doorW || 2.6, dh = opts.doorH || 2.7;
   const doorOff = opts.doorOff || 0;
@@ -225,20 +299,20 @@ function building(W, x0, z0, x1, z1, y0, h, mat, doorSide, opts = {}) {
   return door;
 }
 
-function addDoor(W, id, d, req, label, opts = {}) {
+export function addDoor(W, id, d, req, label, opts = {}) {
   const b = addBox(W, d.minX, d.y0, d.minZ, d.maxX, d.y0 + d.dh, d.maxZ, MAT.DOOR, { tag: 'door' });
   W.doors[id] = { id, boxId: b.id, open: !!opts.open, locked: !!req, req, label, x: d.x, z: d.z, y: d.y0, axis: d.axis, startOpen: !!opts.open };
   b.solid = !opts.open;
   return W.doors[id];
 }
 
-function lamp(W, x, z, y0, h = 4.5, r = 9, color = 'warm') {
+export function lamp(W, x, z, y0, h = 4.5, r = 9, color = 'warm') {
   box(W, x, y0, z, 0.25, h, 0.25, MAT.METAL_DARK);
   box(W, x, y0 + h, z, 0.7, 0.35, 0.7, MAT.LAMP, { solid: false });
   W.lamps.push({ x, z, y: y0 + h, r, color });
 }
 
-function crate(W, x, z, y0, s = 1.4, h = 1.2) {
+export function crate(W, x, z, y0, s = 1.4, h = 1.2) {
   box(W, x, y0, z, s, h, s, MAT.CRATE);
 }
 
@@ -247,13 +321,8 @@ function buildLayout(W) {
   // ---------- Khet Landing (spawn) with the party's shuttle
   const PX = -228, PZ = 62;
   box(W, PX, gT - 0.4, PZ, 22, 0.7, 22, MAT.CONCRETE);
-  W.pois.spawn = { x: PX + 4, z: PZ - 4, y: gT + 0.3 };
-  // Shuttle: hull, wings and ramp (decorative but solid)
-  box(W, PX - 3, gT + 0.3, PZ + 2, 6, 3.2, 11, MAT.HULL);
-  box(W, PX - 3, gT + 3.5, PZ + 3, 4, 1.2, 7, MAT.HULL);
-  box(W, PX - 9.5, gT + 1.6, PZ + 4, 7, 0.4, 4, MAT.HULL);
-  box(W, PX + 3.5, gT + 1.6, PZ + 4, 7, 0.4, 4, MAT.HULL);
-  W.decor.push({ type: 'shuttle', x: PX - 3, y: gT + 0.3, z: PZ + 2 });
+  placeShip(W, PX - 3, gT + 0.3, PZ - 1, 0);
+  W.pois.spawn = { x: PX - 3, z: PZ + 8, y: gT + 0.3 };
   lamp(W, PX + 10, PZ - 10, gT + 0.3, 4, 8, 'cool');
   lamp(W, PX - 10, PZ - 10, gT + 0.3, 4, 8, 'cool');
 
@@ -460,6 +529,21 @@ function buildLayout(W) {
   // Guard posts for road patrol
   W.pois.roadA = { x: 112, z: 3 };
   W.pois.roadB = { x: 48, z: 14 };
+  // Data the simulation spawns from
+  W.npcs.push(
+    { kind: 'merchant', merchant: 'teska', ...W.pois.teska },
+    { kind: 'merchant', merchant: 'bram', ...W.pois.bram },
+    { kind: 'informant', contact: 'oru', ...W.pois.informant },
+    { kind: 'bartender', ...W.pois.bartender, spots: [{ x: -196.8, z: 27.5 }, { x: -196.8, z: 31 }, { x: -196.8, z: 34.5 }] },
+  );
+  W.herds = [{ x: -40, z: -50 }, { x: 10, z: 95 }, { x: 100, z: -70 }];
+  W.critterBounds = [-120, 110, -130, 130];
+  W.civCount = 11;
+  W.terminals.push({ id: 'security', kind: 'security', x: W.pois.security.x, z: W.pois.security.z }, { id: 'vault', kind: 'vault', x: W.pois.vault.x, z: W.pois.vault.z });
+  W.pois.gatePanel = { x: 127.6, z: 5 };
+  W.officerName = 'Commander Rhal';
+  for (const [x, z, ry] of [[124.3, -8, Math.PI / 2], [124.3, 8, Math.PI / 2], [170, -35.7, 0], [170, 35.7, 0]]) W.decor.push({ type: 'banner', x, y: 13.2, z, ry });
+  W.decor.push({ type: 'stringlights', y: 10.2, runs: [[[-176, 46], [-150, 54]], [[-170, 30], [-140, 46]], [[-180, 38], [-132, 38]]] });
 }
 
 // ---------------------------------------------------------------- doors & destructibles

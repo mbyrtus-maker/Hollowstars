@@ -5,7 +5,7 @@ import { K } from '../shared/config.js';
 import { TICK_DT } from '../shared/config.js';
 
 const inbox = new Map();
-const game = new Game({ send: (cid, s) => { inbox.set(cid, s); }, solo: false });
+const game = new Game({ send: (cid, s) => { inbox.set(cid, s); }, solo: false, planet: process.argv[3] });
 const bots = [];
 for (let i = 0; i < 4; i++) {
   const cid = 'bot' + i;

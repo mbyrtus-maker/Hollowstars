@@ -350,4 +350,12 @@ export class FX {
   }
 
   clearBolts() { for (const b of this.bolts.values()) this.scene.remove(b.g); this.bolts.clear(); }
+  // Leaving a planet: drop everything tied to the old world
+  clearAll() {
+    this.clearBolts();
+    for (const d of this.decals) this.scene.remove(d.m);
+    this.decals.length = 0;
+    this.fires.length = 0;
+    this.shake = 0;
+  }
 }

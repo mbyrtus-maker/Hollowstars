@@ -151,6 +151,8 @@ export const ITEMS = {
 export const MERCHANTS = {
   teska: { name: 'Teska Vool', title: 'Arms & Oddments', stock: ['coil', 'cyclic', 'damper', 'shield'], greet: 'Credits talk, friend. Everything else whispers.' },
   bram: { name: 'Old Bram', title: 'Provisions', stock: ['grenade', 'medpack', 'attune', 'weave'], greet: 'Charges, meds, and a little something for the mind.' },
+  grell: { name: 'Grell Asko', title: 'Marsh Salvage', stock: ['grenade', 'medpack', 'damper', 'weave'], greet: 'Everything here was pulled out of the mud. Most of it still works.' },
+  sava: { name: 'Sava Rook', title: 'Cold-Weather Outfitter', stock: ['medpack', 'grenade', 'shield', 'cyclic'], greet: 'Out here, the cold kills more troopers than you will. Buy something warm.' },
 };
 
 export const START_CREDITS = 300;
@@ -181,6 +183,24 @@ export const MISSIONS = {
     reward: 1800,
     ghostBonus: 0,
   },
+  mire: {
+    name: 'Roots of Rebellion',
+    type: 'Destroy · Off-world',
+    giver: 'Oru Dask',
+    planet: 'thessaly',
+    brief: 'Fly the Wayfarer to Thessaly Mire. Meet Vessa Moor in Lowmarsh, knock out the three power cells feeding Harvester Station Kappa, and cut the captured woodcutters out of their pen. Then fly home and report to Oru.',
+    reward: 2600,
+    ghostBonus: 0,
+  },
+  cold: {
+    name: 'Cold Storage',
+    type: 'Stealth Heist · Off-world',
+    giver: 'Oru Dask',
+    planet: 'korrun',
+    brief: 'Fly to Korrun Deep. Tobin Vale in Rime Hold has the code to Cryo-Vault Sigma. Get inside, slice the cryo-archive for the Ashfall Codex, and bring it back to Oru on Dusk Varo.',
+    reward: 3200,
+    ghostBonus: 1200,
+  },
 };
 
 export const PLAYER_COLORS = ['#3fb6ff', '#7dff6a', '#ffb13b', '#e86bff'];
@@ -195,5 +215,5 @@ export const K = {
 // Entity flag bits in snapshots
 export const F = {
   CROUCH: 1, BLOCK: 2, BLADE: 4, DEAD: 8, DOWNED: 16, DRIVING: 32, STAGGER: 64,
-  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072,
+  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072, ABOARD: 262144,
 };

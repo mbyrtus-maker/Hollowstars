@@ -22,8 +22,12 @@ Hollow Stars is a co-op space opera where a crew of up to four lives, fights and
 ### Launch planets
 
 1. **Dusk Varo** (built). A desert world with the township of Khet, Garrison Seven, the Spine ridge, mesas and skitter herds.
-2. **Thessaly Mire.** A jungle and swamp world. Stilt villages, a Concordance logging operation, dense vegetation that hides you, and beasts that hunt by sound.
-3. **Korrun Deep.** An ice and ocean world. Platform cities over a frozen sea, a Concordance shipyard in orbit, blizzards that cut visibility, and submersible sections.
+2. **Thessaly Mire** (built: Lowmarsh, Harvester Station Kappa, the drowned forest). A jungle and swamp world. Stilt villages, a Concordance logging operation, dense vegetation that hides you, and beasts that hunt by sound.
+3. **Korrun Deep** (built: Rime Hold, Cryo-Vault Sigma, ice spires, snowfall). An ice and ocean world. Platform cities over a frozen sea, a Concordance shipyard in orbit, blizzards that cut visibility, and submersible sections.
+
+### Travel today
+
+The crew shares the *Wayfarer*, a four-seat Kestrel-class freighter parked at every world's landing pad. Boarding hides you from the world. The nav console launches once every living crew member is aboard. The room then rebuilds its world for the destination, and clients play a lift-off, a hyperspace jump and a touchdown. Missions tag each step with a planet. When the current step is on another world, the tracker points at the ship. The flight itself is a cutscene for now; phase 2 replaces it with real atmospheric flight and orbit.
 
 ### Spinning up more planets
 
@@ -205,9 +209,9 @@ This ties all the systems together: missions weaken the regime, ownership create
 
 | Phase | Focus | Highlights |
 | --- | --- | --- |
-| 0 (this build) | Vertical slice | 4-player co-op (peer-to-peer or dedicated server), five classes, one planet, stealth, blasters, blade, Current, speeders, 3 missions, merchants, procedural PBR textures |
-| 1 | Depth on foot | Skill trees, more weapons, disguises and body dragging, squad AI, procedural missions, a second planet (Thessaly Mire) |
-| 2 | Flight | Atmospheric fighters and dropships, seamless climb to orbit, space dogfights, a third planet (Korrun Deep) |
+| 0 (this build) | Vertical slice | 4-player co-op (peer-to-peer or dedicated server), five classes, three planets and the crew's ship, stealth, blasters, blade, Current, speeders, 5 missions (2 off-world), merchants, procedural PBR textures |
+| 1 | Depth on foot | Skill trees, more weapons, disguises and body dragging, squad AI, procedural missions, more of each planet |
+| 2 | Flight | Fly the Wayfarer yourself: atmospheric flight, fighters and dropships, seamless climb to orbit, space dogfights |
 | 3 | Capital ships | Subsystem combat, hangar landings, boarding interiors, frigate capture |
 | 4 | Ownership | Land plots, prefab houses, owned starships, tithe schedules and invasion events, persistent servers |
 | 5 | Territory | Planet liberation and ownership, regional control, crew-vs-crew conflict over space |
