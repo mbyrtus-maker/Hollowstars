@@ -123,7 +123,7 @@ Planned:
 
 Each rung uses the same entity, damage and networking model as infantry.
 
-1. **Ground: speeders** (in now). Planned: walkers, armoured transports, turret emplacements, and boarding enemy transports at speed.
+1. **Ground: speeders** (in now; personal speeders called from the Wayfarer are planned, see below). Planned: walkers, armoured transports, turret emplacements, and boarding enemy transports at speed.
 2. **Atmosphere: fighters, gunships, dropships.**
    - Arcade-sim flight with lift, drag and stall.
    - Multi-seat dropships (pilot plus door gunners) for the crew.
@@ -135,6 +135,24 @@ Each rung uses the same entity, damage and networking model as infantry.
    - Exterior: turrets, shield domes and hangar bays you can fly into.
    - Interior: a full infantry level built from the same building kit as Garrison Seven, with bridges, engine rooms and detention decks.
    - Knock out the shields, land in the hangar, fight to the bridge or the reactor.
+
+### The ship as home base, and speeder theft (planned, not yet built)
+
+**Ship-side menu.** Standing at the foot of the Wayfarer's ramp and pressing E opens a menu with three choices:
+- **Refill gear:** tops up charges or noisemakers, medpacks or stims, and mine charges to the class maximum. It's free, or a small fee scaled to what's refilled, to keep it from replacing the merchants.
+- **Call a speeder:** the player's own speeder bike rolls out of the hold beside the ramp. Each player has at most one out at a time; calling a new one sends the old one back. Their speeder tune upgrades apply to it. If it's wrecked, there's a short cooldown before another can be called.
+- **Board the ship:** goes aboard, the same as walking up the ramp today.
+
+**No more free speeders in towns.** The parked speeders that anyone can ride today are removed. Every speeder in a town now belongs to someone: a townsperson's bike, a trader's landspeeder, or a hauler. They can still be taken, but taking one is theft.
+
+**Theft.**
+- **Taking one.** Riding off on someone else's speeder means holding E to hotwire it. That takes a few seconds and is quicker for an Agent, who slices faster. A parked speeder with no one near is the safe option. Pulling a rider off theirs is an open, violent theft.
+- **Witnesses.** It works like stealth. Townsfolk and guards who see the theft react: the owner shouts, bystanders run, and a witness who gets away reports it. If no one sees it, it's only discovered when the owner comes back.
+- **Heat.** A reported theft gives the crew heat in that town. Low heat means merchants charge more and the owner and their friends come after the speeder. High heat calls in the town militia and, near a Concordance site, Lancer patrols on speeders. Heat fades over time while out of sight, or can be cleared by paying a fine at the town's exchange.
+- **Getting rid of it.** A stolen speeder is flagged. It can be returned to its owner (heat drops and there's a small reward), abandoned out of sight, or sold to a fence for salvage, which pays but adds heat if the fence is caught.
+- **Economy tie-in.** A stolen hauler takes its cargo with it, which leaves the town short of whatever it was carrying, so prices for those goods rise.
+
+**Telling new players.** The first job on Dusk Varo tells the crew that they can call a speeder at their ship, and their first landing on each new planet repeats the hint. The ship menu's speeder entry is highlighted until they use it once.
 
 ### Seamless planet-to-orbit transition
 
