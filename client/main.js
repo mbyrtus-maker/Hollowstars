@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { createWorld, raycast, terrainHeight, groundAt, useWorld } from '../shared/world.js';
 import '../shared/layouts.js';
-import { PLANETS } from '../shared/planets.js';
+import { PLANETS, SHIP } from '../shared/planets.js';
 import { Travel } from './travel.js';
 import { K, F, INPUT_RATE, INTERP_DELAY, PLAYER_COLORS, MISSIONS, CLASSES, DEFAULT_CLASS, ADVANCED, advancedFor, LEVELS, WEAPONS } from '../shared/config.js';
 import { dirFromYawPitch } from '../shared/math.js';
@@ -214,10 +214,12 @@ function onMessage(raw) {
       S.myId = m.id;
       S.ents.myId = m.id;
       S.lp = new LocalPlayer(S.world, m.id, m.pos, m.yaw, m.color, m.cls, m.adv);
+      S.lp.setClass(m.cls, m.adv, m.branch, m.slots);
       S.lp.tp = m.tp;
+      rememberLock(m.locked, m.adv);
       if (S.vm) S.scene.camera.remove(S.vm.group);
       S.vm = new ViewModel(S.scene.camera, m.color, S.lp.weapon);
-      S.hud.setClass(S.lp.cls, S.lp.adv);
+      S.hud.setClass(S.lp.cls, S.lp.adv, S.lp.branch, S.lp.slots);
       S.hud.setDrawn(false);
       S.running = true;
       $('loading').classList.add('hidden');
@@ -227,6 +229,7 @@ function onMessage(raw) {
       $('clicktoplay').classList.remove('hidden');
       if (S.planet === 'duskvaro') S.hud.note(m.solo ? 'Welcome to Dusk Varo. The job board is in the Khet plaza, just east of the Wayfarer.' : 'Welcome to Dusk Varo. Gather your crew at the job board in the Khet plaza.', 'objective');
       else S.hud.note(`Your crew is on ${PLANETS[S.planet].name}. ${PLANETS[S.planet].arrival}`, 'objective');
+      S.hud.note(`Need a ride? Press E at the ${SHIP.name}'s ramp to call your own speeder. Town speeders belong to someone.`, 'info');
       requestAnimationFrame(frame);
       break;
     }
@@ -237,13 +240,17 @@ function onMessage(raw) {
     case 'veh': S.lp && S.lp.enterVehicle(m.id, m.s); break;
     case 'planet': if (S.world && m.id !== S.planet) switchWorld(m.id); break;
     case 'cls': {
-      // took (or dropped) an advanced class: new kit, new abilities
-      S.lp.setClass(m.cls, m.adv);
-      S.lp.drawn = false;
-      if (S.vm) S.scene.camera.remove(S.vm.group);
-      S.vm = new ViewModel(S.scene.camera, S.lp.color, S.lp.weapon);
-      S.hud.setClass(S.lp.cls, S.lp.adv);
-      S.hud.setDrawn(false);
+      // a new advanced class, branch or ability loadout
+      const was = S.lp.weapon;
+      S.lp.setClass(m.cls, m.adv, m.branch, m.slots);
+      rememberLock(m.locked, m.adv);
+      if (S.lp.weapon !== was) {
+        S.lp.drawn = false;
+        if (S.vm) S.scene.camera.remove(S.vm.group);
+        S.vm = new ViewModel(S.scene.camera, S.lp.color, S.lp.weapon);
+      }
+      S.hud.setClass(S.lp.cls, S.lp.adv, S.lp.branch, S.lp.slots);
+      S.hud.setDrawn(S.lp.drawn);
       S.audio.ui('good');
       break;
     }
@@ -254,6 +261,7 @@ function onMessage(raw) {
       else if (m.ui === 'shop') S.hud.openShop(m.merchant, () => S.pv, (x) => S.transport.send(x), relock);
       else if (m.ui === 'nav') S.hud.openNav(() => S.g, S.myId, (x) => S.transport.send(x), relock);
       else if (m.ui === 'market') S.hud.openMarket(m.merchant, () => S.g, () => S.pv, (x) => S.transport.send(x), relock);
+      else if (m.ui === 'ship') S.hud.openShipMenu(() => S.pv, (x) => S.transport.send(x), relock);
       else if (m.ui === 'workshop') S.hud.openWorkshop(m.merchant, () => S.pv, (x) => S.transport.send(x), relock);
       S.audio.ui('click');
       break;
@@ -385,6 +393,28 @@ function handleEvent(ev, priv) {
     case 'jets': { const v = S.ents.get(ev[1]); if (v) { fx.jets(v.x, v.y, v.z); au.explosion(v.x, v.y, v.z, 0.35); } break; }
     case 'adrenal': { const [, pid, x, y, z] = ev; fx.ring(x, y, z, 0xff5a5a, 15, 0.7); fx.heal(x, y, z, 24); au.ui('good'); break; }
     case 'decoy': au.whoosh(false); break;
+    case 'abfx': {
+      // branch abilities: [abfx, owner, id, x, y, z]
+      const [, , id, x, y, z] = ev;
+      const C = { aegis: 0x6ad0ff, taunt: 0xffb13b, riposte: 0x9fe8ff, whirl: 0xffe2a0, barrage: 0xff5a3a, turret: 0xffd27a, field: 0x7dff9a, lifeline: 0xff7a9a, cloud: 0x9bdc4a, disguise: 0xb8b0c8, blackout: 0x5a4a8a, emp: 0x7ab8ff }[id] || 0xffffff;
+      const R = { aegis: 12, taunt: 25, whirl: 4.5, barrage: 8, field: 9, lifeline: 20, cloud: 5.5, blackout: 40, emp: 25, riposte: 3 }[id] || 4;
+      fx.ring(x, y + 0.2, z, C, R, id === 'barrage' ? 1.4 : 0.7);
+      if (id === 'whirl') { fx.sparks(x, y + 1.1, z, 26, [1, 0.9, 0.6], 6); au.slash(x, y, z); }
+      else if (id === 'field' || id === 'lifeline' || id === 'aegis') { fx.heal(x, y, z, 26); au.ui('good'); }
+      else if (id === 'emp' || id === 'blackout') { fx.sparks(x, y + 1, z, 30, [0.5, 0.7, 1], 8); au.whoosh(true); }
+      else if (id === 'barrage') { fx.flash(x, y + 1, z, 0xff3a2a, 4, 1.2); au.ui('bad'); }
+      else au.whoosh(false);
+      break;
+    }
+    case 'beam': {
+      const a = S.ents.get(ev[1]), b = S.ents.get(ev[2]);
+      if (a && b) {
+        const col = { net: 0xd8d2c4, dart: 0x9bdc4a, overload: 0x7ab8ff, ricochet: 0xff6a3a }[ev[3]] || 0xffffff;
+        fx.beam(a.x, a.y + 1.4, a.z, b.x, b.y + 1.2, b.z, col);
+        if (ev[3] === 'overload') fx.sparks(b.x, b.y + 1.2, b.z, 14, [0.5, 0.7, 1], 4);
+      }
+      break;
+    }
     case 'xp': S.hud.xpGain(ev[1]); break;
     case 'lvl': {
       const [, pid, lv] = ev;
@@ -537,7 +567,7 @@ function muzzle(left) {
 function useAbility(k, lp, camera) {
   const A = lp.C.abilities[k];
   const msg = { t: 'ab', k, yaw: lp.yaw, pitch: lp.pitch };
-  if (A.id === 'fan' || A.id === 'knife' || A.id === 'rocket') {
+  if (A.id === 'fan' || A.id === 'knife' || A.id === 'rocket' || A.id === 'rail') {
     const aim = lp.aimPoint(camera, S.ents);
     const o = A.id === 'knife' ? handPos() : muzzle();
     const d = [aim.x - o.x, aim.y - o.y, aim.z - o.z];
@@ -604,7 +634,17 @@ function fireSpeeder(aim) {
 $('career-btn').addEventListener('click', (e) => { e.stopPropagation(); if (S.lp && !S.hud.modalOpen) openCareer(); });
 function openCareer() {
   S.input.unlock();
-  S.hud.openCareer(() => S.pv, S.lp.cls, (x) => S.transport.send(x), () => { $('clicktoplay').classList.remove('hidden'); });
+  S.hud.openCareer(() => S.pv, () => S.lp, (x) => S.transport.send(x), () => { $('clicktoplay').classList.remove('hidden'); });
+}
+// A character that took an advanced class can't switch classes any more; the picker shows that
+function rememberLock(cls, adv) {
+  if (!cls) return;
+  settings.locks ||= {};
+  const name = settings.name || 'Drifter';
+  if (settings.locks[name] && settings.locks[name].cls === cls && settings.locks[name].adv === adv) return;
+  settings.locks[name] = { cls, adv };
+  settings.cls = cls;
+  saveSettings();
 }
 
 // class picker
@@ -612,15 +652,20 @@ function buildClassPicker() {
   const grid = $('class-grid');
   if (!CLASSES[settings.cls]) settings.cls = DEFAULT_CLASS;
   grid.innerHTML = Object.entries(CLASSES).map(([id, c]) => `<button class="cls" data-cls="${id}" id="cls-${id}"><b>${c.name}</b><small>${c.role}</small></button>`).join('');
+  const lockOf = () => { const n = ($('m-name').value || 'Drifter').trim().slice(0, 16); return settings.locks && settings.locks[n]; };
   const show = (id) => {
+    const lock = lockOf();
+    if (lock && CLASSES[lock.cls]) id = lock.cls;
     settings.cls = id; saveSettings();
-    grid.querySelectorAll('.cls').forEach((b) => b.classList.toggle('active', b.dataset.cls === id));
+    grid.querySelectorAll('.cls').forEach((b) => { b.classList.toggle('active', b.dataset.cls === id); b.disabled = !!lock && b.dataset.cls !== id; });
     const c = CLASSES[id];
     const ab = Object.entries(c.abilities).map(([k, a]) => `<span><kbd>${k.toUpperCase()}</kbd> ${a.name}</span>`).join('') + (c.leap ? '<span><kbd>Space</kbd> Leap (hold)</span>' : '');
     const adv = advancedFor(id).map((a) => ADVANCED[a].name).join(', ');
-    $('class-info').innerHTML = `<div class="ci-top"><b>${c.weaponName}</b>${c.wanted ? '<em>Wanted by the Concordance</em>' : ''}</div><p>${c.desc}</p><div class="ci-ab">${ab}<span><kbd>G</kbd> ${c.throwable || 'Thermal charges'} ×${c.grenades}</span><span><kbd>H</kbd> ${c.consumable || 'Medpacks'} ×${c.medpacks}</span></div>${adv ? `<div class="ci-adv">At level ${LEVELS.advancedAt}: becomes a <b>${adv}</b></div>` : ''}`;
+    const lockLine = lock ? `<div class="ci-lock">This character took the ${ADVANCED[lock.adv] ? ADVANCED[lock.adv].name : 'advanced'} class and is a ${c.name} for good. Use a different callsign to play another class.</div>` : '';
+    $('class-info').innerHTML = `${lockLine}<div class="ci-top"><b>${c.weaponName}</b>${c.wanted ? '<em>Wanted by the Concordance</em>' : ''}</div><p>${c.desc}</p><div class="ci-ab">${ab}<span><kbd>G</kbd> ${c.throwable || 'Thermal charges'} ×${c.grenades}</span><span><kbd>H</kbd> ${c.consumable || 'Medpacks'} ×${c.medpacks}</span></div>${adv && !lock ? `<div class="ci-adv">At level ${LEVELS.advancedAt}: becomes a <b>${adv}</b>. Switch classes freely until then; the advanced class locks this character in.</div>` : ''}`;
   };
   grid.querySelectorAll('.cls').forEach((b) => b.addEventListener('click', () => show(b.dataset.cls)));
+  $('m-name').addEventListener('input', () => show(settings.cls));
   show(params.get('cls') && CLASSES[params.get('cls')] ? params.get('cls') : settings.cls);
 }
 

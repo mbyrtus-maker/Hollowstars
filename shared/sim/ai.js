@@ -340,7 +340,7 @@ function updateGuard(game, e, dt) {
   // Raise the alarm if this guard survived the countdown
   if (ai.alarmAt != null && game.time >= ai.alarmAt) {
     ai.alarmAt = null;
-    if (!game.alarm.active && ai.state === 'combat' && !e.stagger) {
+    if (!game.alarm.active && ai.state === 'combat' && !e.stagger && !ai.noAlarm) {
       game.bark(e, pick(BARKS.alarm, game.rng));
       game.triggerAlarm(ai.garrison ? 'guard' : 'radio');
     }
@@ -515,7 +515,7 @@ function combat(game, e, dt, run) {
 export function updateCamera(game, e, dt) {
   if (e.dead) return;
   const ai = e.ai;
-  const off = !game.camerasOn;
+  const off = !game.camerasOn || (e.blindUntil || 0) > game.time;
   e.flags = off ? F.OFF : 0;
   e.lookYaw = ai.baseYaw + Math.sin(game.time * ai.speed + ai.phase) * ai.sweep;
   if (ai.tracking && game.time - ai.trackT < 1.5) e.lookYaw = ai.trackYaw;

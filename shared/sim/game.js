@@ -3,7 +3,7 @@
 
 import { K, F, PLAYER, WEAPONS, POWERS, STEALTH, ITEMS, MERCHANTS, MAX_PLAYERS, START_CREDITS, TICK_DT, MISSIONS, CLASSES } from '../config.js';
 import { mulberry32, clamp, dist2, angleDiff, yawTo, lerp } from '../math.js';
-import { createWorld, terrainHeight, setDoorOpen, inShadow, lampLight, groundAt, useWorld } from '../world.js';
+import { createWorld, terrainHeight, setDoorOpen, inShadow, lampLight, groundAt, useWorld, lineOfSight } from '../world.js';
 import '../layouts.js';
 import { stepSpeeder, SPEEDER } from '../vehicles.js';
 import { spawnGuard, garrisonRoster, spawnTown, spawnWildlife, spawnPrisoner, spawnCaptives, updateNPC, updateHerds, guardHearNoise, civilianScare, guardOnDamaged, alertGuardTo, isUnaware, pick } from './ai.js';
@@ -14,8 +14,9 @@ import { padState } from '../spaceport.js';
 import { GOODS, RECIPES, UPGRADES, TOWNS, newMarket, marketTick, makerWork, shipTrade, marketView, priceTable, quoteBuy, quoteSell, packCount, canAfford, spend, gearBonus } from '../economy.js';
 import { startMission, missionTick, missionView, abandonMission, contactTalk, contactLabel, terminalUse, missionHome, missionLeftPlanet } from './missions.js';
 import { PLANETS, SHIP } from '../planets.js';
-import { applyLoadout, useAbility, weaponStats, active, breakCloak, tickClass, absorbDamage, cooldownView, updateHunters, classOf, camoFactor, levelOfPlayer } from './classes.js';
-import { RANGED, LEVELS, levelOf, XP, ADVANCED, effectiveClass } from '../config.js';
+import { spawnOwnedSpeeder, callSpeeder, refill, refillQuote, nearShip, speederOptions, returnOption, steal, hijack, giveBack, fence, fenceQuote, payFine, updateTheft, militiaKilled, heatOf, buyMult, sellMult, speederLook, townName, HEAT } from './theft.js';
+import { applyLoadout, useAbility, weaponStats, active, breakCloak, tickClass, absorbDamage, cooldownView, updateHunters, classOf, camoFactor, levelOfPlayer, sanitizeSlots, fillSlots, unlockedPool } from './classes.js';
+import { RANGED, LEVELS, levelOf, XP, ADVANCED, BRANCHES, BRANCH_RESET_COST, defaultSlots, effectiveClass } from '../config.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const VIEW_IN = 240, VIEW_OUT = 275; // snapshot interest radius
@@ -63,6 +64,7 @@ export class Game {
     this.markets = {};
     this.mkT = 0;
     this.padSeen = [];
+    this.thefts = [];
     this.nodeUntil = new Map();
     spawnTown(this);
     spawnWorkers(this);
@@ -107,11 +109,7 @@ export class Game {
     return out;
   }
 
-  spawnSpeeder(i) {
-    const s = this.speederSpawns[i];
-    const y = groundAt(this.world, s.x, s.z, 50) + SPEEDER.hover;
-    return this.spawn({ kind: K.SPEEDER, x: s.x, y, z: s.z, yaw: s.yaw, hp: SPEEDER.hp, maxHp: SPEEDER.hp, r: SPEEDER.r, h: SPEEDER.h, driver: null, slot: i, onGround: false });
-  }
+  spawnSpeeder(i) { return spawnOwnedSpeeder(this, i); }
 
   spawnPickup(item, x, y, z, vx = 0, vy = 3, vz = 0) {
     const codes = { keycard: 1, datacore: 2 };
@@ -169,7 +167,7 @@ export class Game {
       swingCount: 0, cd: { push: 0, pull: 0, shroud: 0 }, shroudUntil: 0, focusUsedAt: -9, lastHurt: -9,
       healT: 0, use: null, interact: null, visibility: 1, impulseT: -9, kills: 0, stats: { shots: 0 },
       pack: { ...(prof.pack || {}) }, gear: { weapon: 0, armor: 0, speeder: 0, ship: 0, ...(prof.gear || {}) },
-      xp: prof.xp || 0, advs: { ...(prof.advs || {}) },
+      xp: prof.xp || 0, advs: { ...(prof.advs || {}) }, usedSpeeder: !!prof.usedSpeeder,
     });
     applyLoadout(p, info.cls, { ...prof, advs: p.advs });
     this.applyGear(p, true);
@@ -178,7 +176,7 @@ export class Game {
     this.lastGlobal = '';
     this.note(`${p.name} joined the crew.`, 'info');
     this.globalDirty = true;
-    this.sendTo(cid, { t: 'welcome', id: p.id, room: this.roomName, solo: this.solo, pos: [r2(p.x), r2(p.y), r2(p.z)], yaw: p.yaw, tp: p.tpSeq, color: p.color, cls: p.cls, adv: p.adv, planet: this.planet });
+    this.sendTo(cid, { t: 'welcome', id: p.id, room: this.roomName, solo: this.solo, pos: [r2(p.x), r2(p.y), r2(p.z)], yaw: p.yaw, tp: p.tpSeq, color: p.color, cls: p.cls, adv: p.adv, branch: p.branch, slots: p.slots, locked: p.locked, planet: this.planet });
     if (classOf(p).wanted) this.note(`${p.name} is a Warden. The Concordance pays well for Wardens — expect hunters.`, 'warn');
     return { player: p };
   }
@@ -189,6 +187,7 @@ export class Game {
     this.clients.delete(cid);
     if (!p) return;
     if (p.vehicle) { const v = this.ents.get(p.vehicle); if (v) v.driver = null; }
+    for (const v of [...this.ents.values()]) if (v.kind === K.SPEEDER && v.personal === p.id && !v.driver) this.removeEnt(v);
     if (this.interest) this.interest.delete(cid);
     this.persist(p);
     this.removeEnt(p);
@@ -198,7 +197,7 @@ export class Game {
   }
 
   persist(p) {
-    this.saveProfile(p.name, { credits: p.credits, grenades: p.grenades, medpacks: p.medpacks, upgrades: p.upgrades, cls: p.cls, pack: p.pack, gear: p.gear, xp: p.xp, advs: p.advs });
+    this.saveProfile(p.name, { credits: p.credits, grenades: p.grenades, medpacks: p.medpacks, upgrades: p.upgrades, cls: p.cls, pack: p.pack, gear: p.gear, xp: p.xp, advs: p.advs, locked: p.locked, branch: p.branch, slots: p.slots, usedSpeeder: !!p.usedSpeeder });
   }
 
   // ---------------------------------------------------------------- economy
@@ -219,30 +218,76 @@ export class Game {
       this.event(['lvl', p.id, after]);
       this.note(`${p.name} reached level ${after}.`, 'objective');
       if (before < LEVELS.advancedAt && after >= LEVELS.advancedAt) this.pnote(p, 'You can take an advanced class now. Press K to open your career.', 'objective');
+      if (p.adv && before < LEVELS.branchAt && after >= LEVELS.branchAt) this.pnote(p, 'Your advanced class can branch now. Press K to choose a path.', 'objective');
+      if (p.branch) {
+        const fresh = unlockedPool(p).filter((a) => a.lv > before && a.lv <= after);
+        if (fresh.length) {
+          fillSlots(p);
+          this.classChanged(p, true);
+          this.pnote(p, `New ability: ${fresh.map((a) => a.name).join(', ')}. Press K to slot it.`, 'objective');
+        }
+      }
       this.globalDirty = true;
     }
     this.persist(p);
   }
-  // Take (or drop) the advanced class for the class you're playing
+  // Taking an advanced class is for good: the character stays in that class line from then on
   onSpecialize(p, id) {
     if (p.downed) return;
+    if (p.adv) { this.pnote(p, `You're a ${ADVANCED[p.adv].name} for good. Branches can be reset; advanced classes can't.`, 'warn'); return; }
+    const A = ADVANCED[id];
+    if (!A || A.base !== p.cls) return;
     if (this.alarm.active) { this.pnote(p, 'Not while the garrison is hunting you.', 'warn'); return; }
-    if (id) {
-      const A = ADVANCED[id];
-      if (!A || A.base !== p.cls) return;
-      if (levelOf(p.xp).lv < LEVELS.advancedAt) { this.pnote(p, `Advanced classes open at level ${LEVELS.advancedAt}.`, 'warn'); return; }
-    }
-    p.adv = id || null;
-    p.advs[p.cls] = p.adv;
+    if (levelOf(p.xp).lv < LEVELS.advancedAt) { this.pnote(p, `Advanced classes open at level ${LEVELS.advancedAt}.`, 'warn'); return; }
+    p.adv = id;
+    p.advs[p.cls] = id;
+    p.locked = p.cls;
+    p.slots = defaultSlots(p.cls, p.adv);
+    fillSlots(p);
+    this.classChanged(p);
+    this.note(`${p.name} is now a ${classOf(p).name}.`, 'objective');
+  }
+  // At level 15 an advanced class picks one of its two branches
+  onBranch(p, id) {
+    if (p.downed || !p.adv) return;
+    const R = BRANCHES[id];
+    if (!R || R.adv !== p.adv) return;
+    if (p.branch) { this.pnote(p, 'Reset your branch first.', 'warn'); return; }
+    if (this.alarm.active) { this.pnote(p, 'Not while the garrison is hunting you.', 'warn'); return; }
+    if (levelOf(p.xp).lv < LEVELS.branchAt) { this.pnote(p, `Branches open at level ${LEVELS.branchAt}.`, 'warn'); return; }
+    p.branch = id;
+    const waiting = fillSlots(p);
+    this.classChanged(p);
+    this.note(`${p.name} became a ${R.name}.`, 'objective');
+    if (waiting.length) this.pnote(p, `${waiting.map((a) => a.name).join(' and ')} ${waiting.length === 1 ? 'is' : 'are'} ready to slot. Press K.`, 'objective');
+  }
+  // Back to the advanced class, for a price, so the other branch can be taken
+  onBranchReset(p) {
+    if (p.downed || !p.branch) return;
+    if (this.alarm.active) { this.pnote(p, 'Not while the garrison is hunting you.', 'warn'); return; }
+    if (p.credits < BRANCH_RESET_COST) { this.pnote(p, `Resetting a branch costs ${BRANCH_RESET_COST.toLocaleString()}cr.`, 'warn'); return; }
+    this.addCredits(p, -BRANCH_RESET_COST);
+    const was = BRANCHES[p.branch].name;
+    p.branch = null;
+    p.slots = sanitizeSlots(p, p.slots);
+    fillSlots(p);
+    this.classChanged(p);
+    this.note(`${p.name} stepped back from ${was} to ${classOf(p).name}.`, 'info');
+  }
+  // Which unlocked abilities sit on Q, F, X and Z
+  onSlots(p, slots) {
+    if (!slots || typeof slots !== 'object') return;
+    p.slots = sanitizeSlots(p, slots);
+    this.classChanged(p, true);
+  }
+  classChanged(p, quiet) {
     const C = classOf(p);
     p.weapon = C.weapon;
-    p.cdk = { q: 0, f: 0, x: 0 };
-    p.act = {};
+    p.act = quiet ? p.act : {};
     p.grenades = Math.min(p.grenades, C.maxGrenades);
     this.applyGear(p, false);
     this.persist(p);
-    this.sendTo(p.cid, { t: 'cls', cls: p.cls, adv: p.adv });
-    this.note(p.adv ? `${p.name} is now a ${C.name}.` : `${p.name} went back to being a ${C.name}.`, 'objective');
+    this.sendTo(p.cid, { t: 'cls', cls: p.cls, adv: p.adv, branch: p.branch, slots: p.slots, locked: p.locked });
     this.globalDirty = true;
   }
 
@@ -277,7 +322,7 @@ export class Game {
     if (n > 0) {
       n = Math.min(n, Math.floor(m.stock[g]), this.cargoCap(p) - packCount(p.pack));
       if (n <= 0) { this.pnote(p, m.stock[g] < 1 ? 'Sold out.' : 'Your pack is full.', 'warn'); return; }
-      const cost = quoteBuy(m, g, n);
+      const cost = Math.round(quoteBuy(m, g, n) * buyMult(this));
       if (cost > p.credits) { this.pnote(p, 'Not enough credits.', 'warn'); return; }
       m.stock[g] -= n;
       p.pack[g] = (p.pack[g] || 0) + n;
@@ -285,7 +330,7 @@ export class Game {
     } else {
       n = Math.min(-n, p.pack[g] || 0);
       if (n <= 0) return;
-      const got = quoteSell(m, g, n);
+      const got = Math.round(quoteSell(m, g, n) * sellMult(this));
       m.stock[g] += n;
       p.pack[g] -= n;
       if (!p.pack[g]) delete p.pack[g];
@@ -374,7 +419,7 @@ export class Game {
       case 'fire': if (alive) this.onFire(p, msg); break;
       case 'vfire': if (alive) this.onVehicleFire(p, msg); break;
       case 'mel': if (alive && p.drawn && (p.weapon === 'blade' || p.weapon === 'knives') && !p.vehicle) { bladeSwing(this, p); breakCloak(this, p); } break;
-      case 'ab': if (alive && !p.vehicle && (msg.k === 'q' || msg.k === 'f' || msg.k === 'x')) useAbility(this, p, msg.k, msg); break;
+      case 'ab': if (alive && !p.vehicle && ['q', 'f', 'x', 'z'].includes(msg.k)) useAbility(this, p, msg.k, msg); break;
       case 'gren': if (alive && !p.vehicle) this.onGrenade(p, msg); break;
       case 'leap': {
         const c = POWERS.leap.cost * (p.upgrades.attune ? 0.75 : 1);
@@ -391,6 +436,13 @@ export class Game {
       case 'craft': if (alive) this.onCraft(p, String(msg.r || ''), msg.n | 0); break;
       case 'upg': if (alive) this.onUpgrade(p, String(msg.k || '')); break;
       case 'adv': this.onSpecialize(p, msg.id ? String(msg.id) : null); break;
+      case 'refill': if (alive) refill(this, p); break;
+      case 'callspeeder': if (alive) callSpeeder(this, p); break;
+      case 'boardship': if (alive && nearShip(this, p)) this.board(p); break;
+      case 'fine': if (alive) payFine(this, p); break;
+      case 'fence': if (alive) fence(this, p); break;
+      case 'branch': if (msg.id) this.onBranch(p, String(msg.id)); else if (msg.reset) this.onBranchReset(p); break;
+      case 'slots': this.onSlots(p, msg.s); break;
       case 'disembark': if (p.aboard && !this.travel && !this.landing) this.disembark(p); break;
       case 'chat': {
         const m = String(msg.m || '').slice(0, 140).trim();
@@ -459,7 +511,8 @@ export class Game {
     let mult = 1, pierce = 0;
     if (p.phaseShot && active(this, p, 'cloak')) { p.phaseShot = false; mult *= 1.5; } else breakCloak(this, p);
     if (active(this, p, 'overcharge')) { const ph = p.adv === 'phantom'; mult *= ph ? 2.6 : 2.2; pierce = ph ? 8 : 2; p.act.overcharge = 0; }
-    if (!sup) p.heat = Math.min(1, p.heat + W.heatPerShot * (cyc ? 0.8 : 1));
+    if (!sup && !active(this, p, 'quickdraw')) p.heat = Math.min(1, p.heat + W.heatPerShot * (cyc ? 0.8 : 1));
+    if (active(this, p, 'disguise')) { p.act.disguise = 0; this.pnote(p, 'Your disguise is blown.', 'warn'); }
     if (p.heat >= 1) { p.overheated = true; p.overheatT = this.time; }
     const o = this.validOrigin(p, m.o, 3);
     const d = this.validDir(m.d);
@@ -554,14 +607,38 @@ export class Game {
     if (e.dead || amt <= 0) return;
     if (src && src.kind === K.PLAYER && src.gear && WEAPON_KINDS.has(info.kind) && !info.deflected) amt *= gearBonus.damage(src.gear.weapon);
     if (src && src.kind === K.PLAYER) {
+      const SC = classOf(src);
       if (src.act && (src.act.adrenal || 0) > this.time) amt *= 1.25;
       if ((e.bountyUntil || 0) > this.time) amt *= 1.5;
+      if (WEAPON_KINDS.has(info.kind) && !info.deflected && SC.weaponBonus) amt *= 1 + SC.weaponBonus;
+      if (info.kind === 'bolt' && active(this, src, 'quickdraw')) amt *= 1.6;
+      if (active(this, src, 'execmark') && (e.markedUntil || 0) > this.time) amt *= 2;
+      if (e.hostile && active(this, src, 'disguise')) { src.act.disguise = 0; this.pnote(src, 'Your disguise is blown.', 'warn'); }
+      if (info.kind === 'bolt' && e.kind !== K.PLAYER && !e.dead) {
+        if (SC.poison && e.kind !== K.CAMERA) e.poison = { dps: 7, until: this.time + 4, by: src.id };
+        if (active(this, src, 'ricochet') && !info.chain) {
+          src.act.ricochet = 0;
+          const near = this.nearby(e.x, e.z, 16).filter((o) => o !== e && o.hostile && !o.dead && o.kind !== K.CAMERA).slice(0, 2);
+          for (const o of near) {
+            this.event(['beam', e.id, o.id, 'ricochet']);
+            this.later(0.12, () => this.damage(o, amt * 0.7, src, { kind: 'bolt', chain: true, x: o.x, y: o.y + 1, z: o.z }));
+          }
+        }
+      }
     }
     if (e.kind === K.PLAYER) {
       if (e.downed || e.aboard) return;
+      // a Sentinel's presence and a Challenge both blunt incoming fire
+      if (active(this, e, 'taunt')) amt *= 0.6;
+      for (const o of this.players()) {
+        if (o.downed || dist2(o.x, o.z, e.x, e.z) > 8) continue;
+        const dr = classOf(o).auraDR;
+        if (dr) { amt *= 1 - dr; break; }
+      }
       amt = absorbDamage(this, e, amt);
       if (amt <= 0) return;
       if (e.shield > 0) { const s = Math.min(e.shield, amt); e.shield -= s; amt -= s; }
+      if (active(this, e, 'lifeline') && e.hp - amt < 1) amt = Math.max(0, e.hp - 1);
       e.hp -= amt;
       e.lastHurt = this.time;
       const sx = src ? src.x : info.x ?? e.x, sz = src ? src.z : info.z ?? e.z;
@@ -586,7 +663,7 @@ export class Game {
       return;
     }
     if (e.hp <= 0) { this.kill(e, src, info); return; }
-    if (e.hostile) guardOnDamaged(this, e, src);
+    if (e.hostile && info.kind !== 'poison') guardOnDamaged(this, e, src);
     else if (e.kind === K.CIVILIAN) civilianScare(this, e, src ? src.x : e.x, src ? src.z : e.z);
     else if (e.kind === K.CRITTER) { e.ai.fleeUntil = this.time + 5; if (src) { e.ai.fx = e.x - src.x; e.ai.fz = e.z - src.z; } }
   }
@@ -599,7 +676,9 @@ export class Game {
     e.vx *= 0.3; e.vz *= 0.3;
     this.event(['die', e.id, info.kind || 'bolt', info.silent ? 1 : 0]);
     const killer = src && src.kind === K.PLAYER ? src : null;
-    if (e.hostile) {
+    if (e.militia) {
+      militiaKilled(this, e, killer);
+    } else if (e.hostile) {
       this.corpses.push(e);
       if (killer) {
         killer.kills++;
@@ -661,7 +740,11 @@ export class Game {
     }
     explode(this, v.x, v.y + 0.5, v.z, 6, 90, src, 'speeder');
     this.removeEnt(v);
-    this.respawnQueue.push({ at: this.time + 25, kind: K.SPEEDER, slot: v.slot });
+    if (v.personal) {
+      const o = this.ents.get(v.personal);
+      if (o) { o.speederCdUntil = this.time + 30; this.pnote(o, 'Your speeder is wrecked. Call another from the Wayfarer in 30 seconds.', 'warn'); }
+    } else if (v.slot != null && !v.hijacked) this.respawnQueue.push({ at: this.time + 40, kind: K.SPEEDER, slot: v.slot });
+    if (src && src.kind === K.PLAYER && v.owned && !v.stolenBy) { this.addCredits(src, -150); this.pnote(src, `That was ${v.ownerName}'s speeder.`, 'fail'); }
   }
 
   downPlayer(p) {
@@ -748,7 +831,11 @@ export class Game {
   interactables(p) {
     const W = this.world, out = [];
     const add = (id, x, z, label, hold = 0, range = 2.4, y) => out.push({ id, x, z, label, hold, range, y });
-    if (p.vehicle) { out.push({ id: 'veh:' + p.vehicle, x: p.x, z: p.z, label: 'Dismount', hold: 0, range: 99, force: true }); return out; }
+    if (p.vehicle) {
+      const back = returnOption(this, p, this.ents.get(p.vehicle));
+      out.push(back || { id: 'veh:' + p.vehicle, x: p.x, z: p.z, label: 'Dismount', hold: 0, range: 99, force: true });
+      return out;
+    }
     if (p.aboard) { if (!this.travel && !this.landing) out.push({ id: 'nav', x: p.x, z: p.z, label: `Open the ${SHIP.name}'s nav console`, hold: 0, range: 99, force: true }); return out; }
     if (p.downed) return out;
     if (W.pois.board) add('board', W.pois.board.x, W.pois.board.z, 'Browse the job board');
@@ -757,7 +844,7 @@ export class Game {
       if ((this.nodeUntil.get(n.id) || 0) > this.time) continue;
       add('node:' + n.id, n.x, n.z, NODE_LABEL[n.kind], 2.2, 2.6);
     }
-    if (W.pois.ship && !this.travel && !this.landing) add('ship', W.pois.ship.x, W.pois.ship.z, `Board the ${SHIP.name}`, 0, 4.2);
+    if (W.pois.ship && !this.travel && !this.landing) add('ship', W.pois.ship.x, W.pois.ship.z, `${SHIP.name}: restock, call your speeder, or board`, 0, 4.2);
     for (const t of W.terminals) {
       if (dist2(p.x, p.z, t.x, t.z) > 4) continue;
       const sl = classOf(p).sliceSpeed || 1;
@@ -776,10 +863,10 @@ export class Game {
         add('door:' + d.id, d.x, d.z, have ? `Open ${d.label} (${need})` : `${d.label} — locked, needs ${need}`, 0, 3.0);
       }
     }
-    for (const e of this.nearby(p.x, p.z, 4)) {
+    for (const e of this.nearby(p.x, p.z, 4.5)) {
       if (e === p) continue;
-      if (e.kind === K.SPEEDER && !e.driver && !e.dead) add('veh:' + e.id, e.x, e.z, 'Ride speeder', 0, 3.8);
-      else if (e.kind === K.PLAYER && e.downed) add('revive:' + e.id, e.x, e.z, `Revive ${e.name}`, p.cls === 'medic' ? 1 : PLAYER.reviveTime, 2.4);
+      if (e.kind === K.SPEEDER || e.kind === K.TRAFFIC) speederOptions(this, p, e, add);
+      else if (e.kind === K.PLAYER && e.downed) add('revive:' + e.id, e.x, e.z, `Revive ${e.name}`, (p.cls === 'medic' ? 1 : PLAYER.reviveTime) / (classOf(p).reviveScale || 1), 2.4);
       else if (e.kind === K.PICKUP) add('pick:' + e.id, e.x, e.z, e.item === 'keycard' ? 'Take the vault keycard' : 'Take the data core', 0, 2.2);
       else if (e.dead) continue;
       else if (e.kind === K.MERCHANT) { const M = MERCHANTS[e.merchant]; add('npc:' + e.id, e.x, e.z, M.type === 'exchange' ? `Trade goods with ${M.name}` : M.type === 'workshop' ? `Use ${M.name}'s workshop` : `Trade with ${M.name}`, 0, M.type ? 4.2 : 3.2); }
@@ -854,7 +941,10 @@ export class Game {
         break;
       }
       case 'gatepanel': setDoorOpen(W, 'gate', true); this.event(['door', 'gate', 1]); this.globalDirty = true; break;
-      case 'ship': this.board(p); break;
+      case 'ship': this.sendTo(p.cid, { t: 'ui', ui: 'ship' }); break;
+      case 'steal': if (ent && ent.kind === K.SPEEDER && !ent.driver && ent.owned && !ent.stolenBy) { steal(this, p, ent); this.doInteract(p, 'veh:' + ent.id); } break;
+      case 'jack': { const v = hijack(this, p, ent); if (v) this.doInteract(p, 'veh:' + v.id); break; }
+      case 'return': if (ent) giveBack(this, p, ent); break;
       case 'node': {
         const n = W.nodes[+ref];
         if (!n || (this.nodeUntil.get(n.id) || 0) > this.time) return;
@@ -989,6 +1079,7 @@ export class Game {
     this.landing = null;
     for (const p of this.players()) if (p.aboard) this.disembark(p);
     this.note(`Arrived on ${PLANETS[to].name}. ${PLANETS[to].arrival}`, 'objective');
+    this.note(`Need a ride? Press E at the ${SHIP.name}'s ramp to call your speeder.`, 'info');
   }
 
   exitVehicle(p, forced) {
@@ -1064,6 +1155,12 @@ export class Game {
       if (e.kind === K.TRAFFIC) { updateTraffic(this, e, dt); continue; }
       if (e.kind === K.MINE) { this.updateMine(e); continue; }
       if (e.kind === K.DECOY) { this.updateDecoy(e); continue; }
+      if (e.kind === K.TURRET) { this.updateTurret(e); continue; }
+      if (e.kind === K.CLOUD) { this.updateCloud(e, dt); continue; }
+      if (e.poison && !e.dead) {
+        if (this.time > e.poison.until) e.poison = null;
+        else this.damage(e, e.poison.dps * dt, this.ents.get(e.poison.by) || null, { kind: 'poison', silent: true });
+      }
       if (e.kind === K.PICKUP) { this.updatePickup(e, dt); continue; }
       if (e.dead) {
         if (e.kind !== K.CAMERA) {
@@ -1081,6 +1178,7 @@ export class Game {
     stepGrenades(this, dt);
     this.updateAlarm(dt);
     this.economyTick(dt);
+    updateTheft(this, dt);
     missionTick(this);
     this.broadcastSnapshot();
   }
@@ -1103,6 +1201,40 @@ export class Game {
     if (this.time >= e.nextNoise) { e.nextNoise = this.time + 1.6; this.noise(e.x, e.y, e.z, 30, e, false); }
   }
 
+  // A Heavy Gunner's sentry: picks the nearest foe it can see and keeps shooting until it runs down
+  updateTurret(e) {
+    if (this.time > e.until) { this.removeEnt(e); this.event(['boom', r2(e.x), r2(e.y + 0.6), r2(e.z), 1.5]); return; }
+    if (this.time < e.nextShot) return;
+    const owner = this.ents.get(e.owner);
+    let best = null, bd = 40;
+    for (const o of this.nearby(e.x, e.z, 40)) {
+      if (!o.hostile || o.dead || o.kind === K.CAMERA) continue;
+      const d = dist2(e.x, e.z, o.x, o.z);
+      if (d < bd && lineOfSight(this.world, e.x, e.y + 1.1, e.z, o.x, o.y + 1.1, o.z)) { bd = d; best = o; }
+    }
+    if (!best || !owner) { e.nextShot = this.time + 0.3; return; }
+    e.nextShot = this.time + 0.32;
+    e.yaw = yawTo(e.x, e.z, best.x, best.z);
+    const ox = e.x, oy = e.y + 1.05, oz = e.z;
+    let dx = best.x - ox, dy = best.y + 1.1 - oy, dz = best.z - oz;
+    const l = Math.hypot(dx, dy, dz) || 1;
+    dx = dx / l + (this.rng() - 0.5) * 0.04; dy /= l; dz = dz / l + (this.rng() - 0.5) * 0.04;
+    this.spawnBolt(owner, ox + dx * 0.6, oy, oz + dz * 0.6, dx, dy, dz, 100, 20, 'player', 30);
+  }
+  // Toxin clouds hurt foes inside; mending fields heal the crew
+  updateCloud(e, dt) {
+    if (this.time > e.until) { this.removeEnt(e); return; }
+    const owner = this.ents.get(e.owner) || null;
+    for (const o of this.nearby(e.x, e.z, e.rad)) {
+      if (o.dead || Math.abs(o.y - e.y) > 4) continue;
+      if (e.heal) { if (o.kind === K.PLAYER && !o.downed) o.hp = Math.min(o.maxHp, o.hp + e.heal * dt); }
+      else if ((o.hostile && o.kind !== K.CAMERA) || o.kind === K.CRITTER) {
+        this.damage(o, e.dps * dt, owner, { kind: 'poison', silent: true, x: o.x, y: o.y + 1, z: o.z });
+        if (o.ai && o.ai.state !== 'combat' && !o.dead) o.stagger = Math.max(o.stagger || 0, 0.2);
+      }
+    }
+  }
+
   updatePickup(e, dt) {
     e.vy -= 20 * dt;
     e.x += e.vx * dt; e.z += e.vz * dt; e.y += e.vy * dt;
@@ -1116,7 +1248,7 @@ export class Game {
       const p = this.ents.get(v.driver);
       if (!p || p.vehicle !== v.id) v.driver = null;
       v.a1 = v.driver || 0;
-      v.a2 = Math.round((v.hp / v.maxHp) * 100);
+      v.a2 = Math.round((v.hp / v.maxHp) * 100) | (speederLook(v) << 7);
       return;
     }
     v.a1 = 0;
@@ -1141,6 +1273,8 @@ export class Game {
       tickClass(this, p, dt);
       if (!p.drawn && !p.vehicle) vis *= 0.85; // holstered: you could be anyone
       vis *= camoFactor(p);
+      // a disguise only fails up close
+      if (active(this, p, 'disguise') && !this.nearby(p.x, p.z, 4).some((e) => e.hostile && !e.dead && e.kind !== K.CAMERA)) vis *= 0.06;
       if (p.vehicle) vis = 1.6;
       p.visibility = clamp(vis, 0.05, 2);
       p.lit = light;
@@ -1203,6 +1337,20 @@ export class Game {
     }
   }
 
+  // What the ship menu and the exchange need to show this player
+  shipView(p) {
+    const out = {};
+    if (nearShip(this, p)) {
+      const q = refillQuote(p);
+      out.rq = [q.gr, q.md, q.cost, Math.max(0, q.mines) + Math.max(0, q.knives)];
+      out.scd = Math.max(0, Math.ceil((p.speederCdUntil || 0) - this.time));
+      out.sp = [...this.ents.values()].some((e) => e.kind === K.SPEEDER && e.personal === p.id) ? 1 : 0;
+      out.fs = p.usedSpeeder ? 0 : 1;
+    }
+    if (this.nearShop(p, 'exchange')) { const f = fenceQuote(this, p); if (f) out.fq = f.cr; }
+    return out;
+  }
+
   // ---------------------------------------------------------------- snapshot
 
   globalState() {
@@ -1216,12 +1364,13 @@ export class Game {
       m: missionView(this),
       doors, des,
       it: Object.keys(this.party.items).filter((k) => this.party.items[k]),
-      party: this.players().map((p) => [p.id, p.name, p.color, Math.round(p.hp), p.downed ? 1 : 0, Math.round(p.credits), p.cls, p.aboard ? 1 : 0, levelOf(p.xp).lv, p.adv || '']),
+      party: this.players().map((p) => [p.id, p.name, p.color, Math.round(p.hp), p.downed ? 1 : 0, Math.round(p.credits), p.cls, p.aboard ? 1 : 0, levelOf(p.xp).lv, p.adv || '', p.branch || '']),
       pl: this.planet,
       tr: this.travel ? [this.travel.to, Math.max(0, Math.round((this.travel.at - this.time) * 10) / 10)] : null,
       mk: this.mkView,
       ship: Math.round(this.time - this.market().lastShip),
       nd: [...this.nodeUntil].filter(([, t]) => t > this.time).map(([id]) => id),
+      ht: Math.round(heatOf(this)), town: townName(this),
     };
   }
 
@@ -1247,6 +1396,8 @@ export class Game {
       a1 = e.variant | 0;
       if (e.kind === K.CIVILIAN) a2 = e.roleCode | 0;
     }
+    if (e.militia) flags |= F.MILITIA;
+    if (e.kind === K.SPEEDER && e.stolenBy) flags |= F.STOLEN;
     if (e.dead) flags |= F.DEAD;
     if (e.stagger > 0) flags |= F.STAGGER;
     if ((e.markedUntil || 0) > this.time && !e.dead) flags |= F.MARKED;
@@ -1286,7 +1437,8 @@ export class Game {
         ev: this.priv.get(p.id) || [],
         ab: cooldownView(this, p), os: Math.round(p.overshield || 0), cls: p.cls,
         pk: p.pack, gear: p.gear, cap: this.cargoCap(p), mhp: p.maxHp,
-        lv: lvl.lv, xp: lvl.into, xpn: lvl.need, adv: p.adv,
+        lv: lvl.lv, xp: lvl.into, xpn: lvl.need, adv: p.adv, br: p.branch,
+        ...this.shipView(p),
       };
       const msg = `{"t":"s","tm":${r2(this.time)},"e":${eJSON},"ev":${evJSON},"pv":${JSON.stringify(pv)}${gJSON ? `,"g":${gJSON}` : ''}}`;
       this.send(cid, msg);

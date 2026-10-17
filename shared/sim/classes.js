@@ -1,25 +1,63 @@
 // Crew classes: loadouts, Q/F/X abilities, and the Warden's "wanted" status.
-import { CLASSES, DEFAULT_CLASS, WEAPONS, POWERS, K, STEALTH, ADVANCED, LEVELS, effectiveClass, levelOf } from '../config.js';
+import { CLASSES, DEFAULT_CLASS, WEAPONS, POWERS, K, STEALTH, ADVANCED, BRANCHES, LEVELS, SLOTS, effectiveClass, levelOf, abilityPool, defaultSlots } from '../config.js';
 import { clamp, dist2, yawTo, angleDiff, dirFromYawPitch } from '../math.js';
 import { lineOfSight, navWalkable, terrainHeight, groundAt, raycast } from '../world.js';
 import { isUnaware, pick, spawnGuard } from './ai.js';
-import { powerPush, powerPull } from './combat.js';
+import { powerPush, powerPull, explode } from './combat.js';
 
-export const classOf = (p) => effectiveClass(p.cls, p.adv);
+export const classOf = (p) => effectiveClass(p.cls, p.adv, p.branch, p.slots);
 export const levelOfPlayer = (p) => levelOf(p.xp || 0).lv;
 
+// Abilities this character has unlocked at their level
+export function unlockedPool(p) {
+  const lv = levelOfPlayer(p);
+  return abilityPool(p.cls, p.adv, p.branch).filter((a) => a.lv <= lv);
+}
+
+// Keep only abilities that are unlocked, each in one slot; the fourth slot needs an advanced class
+export function sanitizeSlots(p, slots) {
+  const ok = new Set(unlockedPool(p).map((a) => a.id));
+  const out = { q: null, f: null, x: null, z: null }, used = new Set();
+  for (const k of SLOTS) {
+    const id = slots && typeof slots[k] === 'string' ? slots[k] : null;
+    if (!id || !ok.has(id) || used.has(id) || (k === 'z' && !p.adv)) continue;
+    out[k] = id; used.add(id);
+  }
+  return out;
+}
+
+// Newly unlocked abilities drop into any empty slot; returns the ones left waiting in the pool
+export function fillSlots(p) {
+  const used = new Set(Object.values(p.slots).filter(Boolean));
+  const waiting = [];
+  for (const a of unlockedPool(p)) {
+    if (used.has(a.id)) continue;
+    const k = SLOTS.find((s) => !p.slots[s] && (s !== 'z' || p.adv));
+    if (k) { p.slots[k] = a.id; used.add(a.id); } else waiting.push(a);
+  }
+  return waiting;
+}
+
 export function applyLoadout(p, cls, prof) {
+  // a character who took an advanced class is that class for good
+  if (prof && prof.locked && CLASSES[prof.locked]) cls = prof.locked;
   if (!CLASSES[cls]) cls = DEFAULT_CLASS;
   p.cls = cls;
-  // an advanced class sticks once chosen, as long as the level still allows it
+  const lv = levelOf(p.xp || 0).lv;
   const adv = prof && prof.advs && prof.advs[cls];
-  p.adv = adv && ADVANCED[adv] && ADVANCED[adv].base === cls && levelOf(p.xp || 0).lv >= LEVELS.advancedAt ? adv : null;
-  const C = effectiveClass(cls, p.adv);
+  p.adv = adv && ADVANCED[adv] && ADVANCED[adv].base === cls && lv >= LEVELS.advancedAt ? adv : null;
+  p.locked = p.adv ? cls : null;
+  const br = prof && prof.branch;
+  p.branch = p.adv && br && BRANCHES[br] && BRANCHES[br].adv === p.adv && lv >= LEVELS.branchAt ? br : null;
+  p.slots = defaultSlots(cls, p.adv);
+  if (prof && prof.slots && prof.cls === cls) p.slots = sanitizeSlots(p, prof.slots);
+  fillSlots(p);
+  const C = classOf(p);
   p.weapon = C.weapon;
   const same = prof && prof.cls === cls;
   p.grenades = same && prof.grenades != null ? Math.min(C.maxGrenades, prof.grenades) : C.grenades;
   p.medpacks = same && prof.medpacks != null ? Math.min(C.maxMedpacks, prof.medpacks) : C.medpacks;
-  p.cdk = { q: 0, f: 0, x: 0 };
+  p.cdk = {}; // ability id -> ready time, so swapping slots never skips a cooldown
   p.act = {}; // active ability -> expiry time
   p.knives = 3;
   p.knifeRegen = 0;
@@ -29,6 +67,7 @@ export function applyLoadout(p, cls, prof) {
   p.overshield = 0;
   p.invulnUntil = 0;
 }
+export const hasAbility = (p, id) => Object.values(classOf(p).abilities).some((a) => a.id === id);
 
 export function weaponStats(p) { return WEAPONS[p.weapon] || WEAPONS.blaster; }
 export const active = (g, p, id) => (p.act[id] || 0) > g.time;
@@ -51,6 +90,7 @@ function aimTarget(g, p, yaw, pitch, range, cone, filter) {
   }
   return best;
 }
+const r2 = (v) => Math.round(v * 100) / 100;
 const isFoe = (e) => e.hostile && !e.dead && e.kind !== K.CAMERA;
 
 export function useAbility(g, p, k, m) {
@@ -58,9 +98,10 @@ export function useAbility(g, p, k, m) {
   const A = C.abilities[k];
   if (!A || p.downed || p.dead) return;
   const yaw = Number.isFinite(+m.yaw) ? +m.yaw : p.yaw, pitch = Number.isFinite(+m.pitch) ? +m.pitch : p.pitch;
-  const ready = () => g.time >= p.cdk[k];
+  const ready = () => g.time >= (p.cdk[A.id] || 0);
   // every level shaves a little off ability cooldowns
-  const spend = (cd) => { p.cdk[k] = g.time + cd * (1 - LEVELS.cdPer * (levelOfPlayer(p) - 1)); };
+  const spend = (cd) => { p.cdk[A.id] = g.time + cd * ((C.cdScale && C.cdScale[A.id]) || 1) * (1 - LEVELS.cdPer * (levelOfPlayer(p) - 1)); };
+  const dur = () => A.dur * ((C.durScale && C.durScale[A.id]) || 1);
   switch (A.id) {
     // ---- Warden (uses Focus)
     case 'push': powerPush(g, p, { yaw, pitch }); break;
@@ -197,7 +238,7 @@ export function useAbility(g, p, k, m) {
       if (!ready()) return;
       spend(A.cd);
       p.phaseShot = true;
-      cloakUp(g, p, A.dur);
+      cloakUp(g, p, dur());
       break;
     }
     // ---- Guardian
@@ -228,7 +269,8 @@ export function useAbility(g, p, k, m) {
       const t = aimTarget(g, p, yaw, pitch, 80, 0.15, isFoe);
       if (!t) { g.pnote(p, 'No mark in your sights.', 'warn'); return; }
       spend(A.cd);
-      t.bountyUntil = g.time + A.dur; t.bountyBy = p.id; t.markedUntil = Math.max(t.markedUntil || 0, g.time + A.dur);
+      const md = A.dur * (C.markScale || 1);
+      t.bountyUntil = g.time + md; t.bountyBy = p.id; t.markedUntil = Math.max(t.markedUntil || 0, g.time + md);
       g.event(['bounty', p.id, t.id]);
       g.note(`${p.name} put a bounty on a ${t.kind === K.OFFICER ? 'Concordance officer' : 'Lancer'}: it takes half again the damage.`, 'stealth');
       break;
@@ -308,6 +350,285 @@ export function useAbility(g, p, k, m) {
       cloakUp(g, p, A.dur);
       break;
     }
+    // ---- Shieldwall Sentinel
+    case 'aegis': {
+      if (!ready()) return;
+      spend(A.cd);
+      let n = 0;
+      for (const o of g.players()) {
+        if (o.downed || dist2(o.x, o.z, p.x, p.z) > 12) continue;
+        o.act.aegis = g.time + 10; o.overshield = Math.max(o.overshield, 45); n++;
+      }
+      g.event(['abfx', p.id, 'aegis', r2(p.x), r2(p.y), r2(p.z)]);
+      g.note(`${p.name} threw an aegis over ${n} of the crew.`, 'info');
+      break;
+    }
+    case 'taunt': {
+      if (!ready()) return;
+      spend(A.cd);
+      p.act.taunt = g.time + A.dur;
+      let n = 0;
+      for (const e of g.nearby(p.x, p.z, 25)) {
+        if (!isFoe(e) || !e.ai || e.ai.state !== 'combat') continue;
+        e.ai.target = p.id; e.ai.lkp = { x: p.x, y: p.y, z: p.z }; n++;
+      }
+      g.event(['abfx', p.id, 'taunt', r2(p.x), r2(p.y), r2(p.z)]);
+      g.pnote(p, n ? `${n} ${n === 1 ? 'gun turns' : 'guns turn'} on you. You take less damage for ${A.dur}s.` : 'No one is fighting you yet. You take less damage for a few seconds.', 'info');
+      break;
+    }
+    // ---- Bladedancer
+    case 'riposte': if (!ready()) return; spend(A.cd); p.act.riposte = g.time + A.dur; g.event(['abfx', p.id, 'riposte', r2(p.x), r2(p.y), r2(p.z)]); g.pnote(p, 'Riposte: bolts in front of you go straight back', 'stealth'); break;
+    case 'whirl': {
+      if (!ready()) return;
+      spend(A.cd);
+      const dmg = 70 * (1 + (C.weaponBonus || 0)) * (p.upgrades.coil ? 1.2 : 1);
+      for (const e of g.nearby(p.x, p.z, 4.5)) {
+        if (!isFoe(e) && e.kind !== K.CRITTER) continue;
+        if (Math.abs(e.y - p.y) > 2.5) continue;
+        const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz) || 1;
+        e.vx = dx / d * 6; e.vz = dz / d * 6; e.vy = 3; e.stagger = Math.max(e.stagger || 0, 0.7); e.staggerBy = p.id;
+        g.damage(e, dmg, p, { kind: 'blade', x: e.x, y: e.y + 1, z: e.z });
+      }
+      p.swingCount = (p.swingCount + 1) % 1000;
+      g.event(['abfx', p.id, 'whirl', r2(p.x), r2(p.y), r2(p.z)]);
+      g.noise(p.x, p.y, p.z, 10, p, false);
+      break;
+    }
+    // ---- Manhunter
+    case 'net': {
+      if (!ready()) return;
+      const t = aimTarget(g, p, yaw, pitch, 40, 0.18, (e) => isFoe(e) || e.kind === K.CRITTER);
+      if (!t) { g.pnote(p, 'No one in your sights to net.', 'warn'); return; }
+      spend(A.cd);
+      t.stagger = Math.max(t.stagger || 0, 3.5); t.staggerBy = p.id; t.vx = t.vz = 0;
+      g.event(['beam', p.id, t.id, 'net']);
+      break;
+    }
+    case 'hunt': {
+      if (!ready()) return;
+      spend(A.cd);
+      const f = dirFromYawPitch(yaw, 0);
+      const md = A.dur * (C.markScale || 1);
+      let n = 0;
+      for (const e of g.nearby(p.x, p.z, 45)) {
+        if (!isFoe(e)) continue;
+        const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz) || 1;
+        if ((dx * f.x + dz * f.z) / d < Math.cos(0.9)) continue;
+        e.bountyUntil = g.time + md; e.bountyBy = p.id; e.markedUntil = Math.max(e.markedUntil || 0, g.time + md); n++;
+      }
+      g.event(['recon', p.id, +yaw.toFixed(2)]);
+      g.note(`Open season: ${p.name} put a bounty on ${n} ${n === 1 ? 'target' : 'targets'}.`, n ? 'stealth' : 'info');
+      break;
+    }
+    // ---- Gunfighter
+    case 'quickdraw': if (!ready()) return; spend(A.cd); p.act.quickdraw = g.time + A.dur; p.heat = 0; p.overheated = false; g.pnote(p, 'Quickdraw: harder shots, no heat', 'stealth'); g.event(['charge', p.id]); break;
+    case 'trickshot': {
+      if (!ready()) return;
+      const targets = [];
+      for (const e of g.nearby(p.x, p.z, 35)) {
+        if (!isFoe(e)) continue;
+        if (!lineOfSight(g.world, p.x, p.y + 1.5, p.z, e.x, e.y + 1, e.z)) continue;
+        targets.push([dist2(p.x, p.z, e.x, e.z), e]);
+      }
+      if (!targets.length) { g.pnote(p, 'Nobody in view for a trick shot.', 'warn'); return; }
+      spend(A.cd);
+      targets.sort((a, b) => a[0] - b[0]);
+      const W = WEAPONS.pistols;
+      for (let i = 0; i < 8; i++) {
+        const t = targets[i % Math.min(4, targets.length)][1];
+        g.later(i * 0.07, () => {
+          if (p.downed || !g.ents.has(p.id)) return;
+          if (t.dead) return;
+          // fired off to one side so the bolt visibly curves in
+          const side = i % 2 ? 1 : -1;
+          const ox = p.x + Math.cos(p.yaw) * 0.3 * side, oy = p.y + 1.35, oz = p.z - Math.sin(p.yaw) * 0.3 * side;
+          let dx = t.x - ox, dy = t.y + 1.1 - oy, dz = t.z - oz;
+          const l = Math.hypot(dx, dz) || 1;
+          const fx = dx / l, fz = dz / l;
+          dx = fx - fz * 0.03 * side; dz = fz + fx * 0.03 * side;
+          const n = Math.hypot(dx, dy / l, dz) || 1;
+          const b = g.spawnBolt(p, ox, oy, oz, dx / n, dy / l / n, dz / n, W.boltSpeed * 0.7, W.damage * 1.6 * (1 + (C.weaponBonus || 0)), 'player', 20);
+          b.homing = t.id; b.life = 1.5;
+        });
+      }
+      p.swingCount = (p.swingCount + 1) % 1000;
+      break;
+    }
+    // ---- Vanguard
+    case 'slam': {
+      if (!ready()) return;
+      spend(A.cd);
+      const f = dirFromYawPitch(yaw, 0);
+      p.impulseT = g.time;
+      g.impulse(p, f.x * 13, 9, f.z * 13);
+      g.event(['jets', p.id]);
+      g.later(0.85, () => {
+        if (!g.ents.has(p.id) || p.downed) return;
+        explode(g, p.x, p.y + 0.3, p.z, 6, 95, p, 'slam', p);
+      });
+      break;
+    }
+    case 'barrage': {
+      if (!ready()) return;
+      const d = dirFromYawPitch(yaw, pitch);
+      const hit = raycast(g.world, p.x, p.y + 1.6, p.z, d.x, d.y, d.z, 70, { terrainStep: 1 });
+      if (!hit) { g.pnote(p, 'Point at the ground you want hit.', 'warn'); return; }
+      spend(A.cd);
+      const x = p.x + d.x * hit.t, y = p.y + 1.6 + d.y * hit.t, z = p.z + d.z * hit.t;
+      g.event(['abfx', p.id, 'barrage', r2(x), r2(y), r2(z)]);
+      g.note(`${p.name} called a barrage. Clear the mark!`, 'warn');
+      for (let i = 0; i < 3; i++) {
+        g.later(1.2 + i * 0.5, () => {
+          const ox = x + (g.rng() - 0.5) * 5, oz = z + (g.rng() - 0.5) * 5;
+          explode(g, ox, groundAt(g.world, ox, oz, y + 3) + 0.3, oz, 6, 85, p, 'barrage');
+        });
+      }
+      break;
+    }
+    // ---- Heavy Gunner
+    case 'rail': {
+      if (!ready()) return;
+      const d = g.validDir(m.d);
+      if (!d) return;
+      spend(A.cd);
+      const o = g.validOrigin(p, m.o, 3);
+      const b = g.spawnBolt(p, o[0], o[1], o[2], d[0], d[1], d[2], 220, 160 * (1 + (C.weaponBonus || 0)), 'player', 40, 0, 5);
+      b.pierce = 6;
+      g.event(['charge', p.id]);
+      break;
+    }
+    case 'turret': {
+      if (!ready()) return;
+      const f = dirFromYawPitch(yaw, 0);
+      const tx = p.x + f.x * 1.8, tz = p.z + f.z * 1.8;
+      const ty = groundAt(g.world, tx, tz, p.y + 1.5);
+      if (Math.abs(ty - p.y) > 1.5 || !navWalkable(g.world, tx, tz)) { g.pnote(p, 'Find flat ground for the turret.', 'warn'); return; }
+      spend(A.cd);
+      for (const e of [...g.ents.values()]) if (e.kind === K.TURRET && e.owner === p.id) g.removeEnt(e);
+      g.spawn({ kind: K.TURRET, x: tx, y: ty, z: tz, yaw, owner: p.id, until: g.time + A.dur, nextShot: g.time + 0.6, hp: 120, maxHp: 120, r: 0.5, h: 1.2, a1: p.color });
+      g.event(['abfx', p.id, 'turret', r2(tx), r2(ty), r2(tz)]);
+      break;
+    }
+    // ---- Field Medic
+    case 'field': {
+      if (!ready()) return;
+      spend(A.cd);
+      g.spawn({ kind: K.CLOUD, x: p.x, y: p.y, z: p.z, owner: p.id, until: g.time + A.dur, rad: 9, heal: 9, hp: 1, maxHp: 1, r: 0.1, h: 0.1, a1: 1, a2: 9 });
+      g.event(['abfx', p.id, 'field', r2(p.x), r2(p.y), r2(p.z)]);
+      break;
+    }
+    case 'lifeline': {
+      if (!ready()) return;
+      spend(A.cd);
+      let n = 0;
+      for (const o of g.players()) {
+        if (dist2(o.x, o.z, p.x, p.z) > 20) continue;
+        if (o.downed) { g.revive(o, p); o.hp = 40; }
+        o.act.lifeline = g.time + A.dur; n++;
+      }
+      g.event(['abfx', p.id, 'lifeline', r2(p.x), r2(p.y), r2(p.z)]);
+      g.note(`${p.name}'s lifeline: ${n} of the crew can't go down for ${A.dur}s.`, 'credits');
+      break;
+    }
+    // ---- Toxicologist
+    case 'cloud': {
+      if (!ready()) return;
+      const d = dirFromYawPitch(yaw, pitch);
+      const hit = raycast(g.world, p.x, p.y + 1.5, p.z, d.x, d.y, d.z, 30, { terrainStep: 0.8 });
+      const t = hit ? Math.max(1.5, hit.t - 0.5) : 30;
+      const x = p.x + d.x * t, z = p.z + d.z * t;
+      const y = groundAt(g.world, x, z, p.y + 1.5 + d.y * t + 1);
+      spend(A.cd);
+      g.spawn({ kind: K.CLOUD, x, y, z, owner: p.id, until: g.time + A.dur, rad: 5.5, dps: 16, hp: 1, maxHp: 1, r: 0.1, h: 0.1, a1: 0, a2: 6 });
+      g.event(['abfx', p.id, 'cloud', r2(x), r2(y), r2(z)]);
+      break;
+    }
+    case 'sedate': {
+      if (!ready()) return;
+      const t = aimTarget(g, p, yaw, pitch, 45, 0.14, (e) => isFoe(e) || e.kind === K.CRITTER);
+      if (!t) { g.pnote(p, 'No one in your sights to sedate.', 'warn'); return; }
+      spend(A.cd);
+      g.event(['beam', p.id, t.id, 'dart']);
+      g.later(0.25, () => { if (!t.dead) g.damage(t, 999, p, { kind: 'sedate', silent: true, x: t.x, y: t.y + 1, z: t.z }); });
+      break;
+    }
+    // ---- Infiltrator
+    case 'disguise': {
+      if (!ready()) return;
+      if (g.alarm.active) { g.pnote(p, 'No disguise fools a garrison that is already hunting you.', 'warn'); return; }
+      spend(A.cd);
+      p.act.disguise = g.time + A.dur;
+      g.event(['abfx', p.id, 'disguise', r2(p.x), r2(p.y), r2(p.z)]);
+      g.pnote(p, 'Disguised. Guards only look twice if you get close or start shooting.', 'stealth');
+      break;
+    }
+    case 'blackout': {
+      if (!ready()) return;
+      spend(A.cd);
+      let cams = 0, guards = 0;
+      for (const e of g.nearby(p.x, p.z, 40)) {
+        if (e.dead || !e.ai) continue;
+        if (e.kind === K.CAMERA) { e.blindUntil = g.time + A.dur; e.ai.sus = 0; e.ai.tracking = false; cams++; }
+        else if (e.hostile && dist2(e.x, e.z, p.x, p.z) < 22 && e.ai.state !== 'combat') { e.ai.sus = 0; e.ai.ignore = { id: p.id, until: g.time + 8 }; guards++; }
+      }
+      g.event(['abfx', p.id, 'blackout', r2(p.x), r2(p.y), r2(p.z)]);
+      g.note(`Blackout: ${cams} ${cams === 1 ? 'camera' : 'cameras'} and ${guards} ${guards === 1 ? 'guard' : 'guards'} blinded.`, 'stealth');
+      break;
+    }
+    // ---- Saboteur
+    case 'emp': {
+      if (!ready()) return;
+      spend(A.cd);
+      let n = 0;
+      for (const e of g.nearby(p.x, p.z, 25)) {
+        if (e.dead) continue;
+        if (e.kind === K.CAMERA) { e.blindUntil = g.time + 20; if (e.ai) { e.ai.sus = 0; e.ai.tracking = false; } n++; }
+        else if (isFoe(e) && dist2(e.x, e.z, p.x, p.z) < 10) { e.stagger = Math.max(e.stagger || 0, 2.5); e.staggerBy = p.id; n++; }
+        else if (e.kind === K.TURRET && e.owner !== p.id) e.until = g.time;
+      }
+      g.event(['abfx', p.id, 'emp', r2(p.x), r2(p.y), r2(p.z)]);
+      g.pnote(p, `EMP hit ${n} ${n === 1 ? 'target' : 'targets'}.`, 'stealth');
+      break;
+    }
+    case 'overload': {
+      if (!ready()) return;
+      const t = aimTarget(g, p, yaw, pitch, 40, 0.16, (e) => isFoe(e) && e.kind !== K.CAMERA);
+      if (!t) { g.pnote(p, 'No trooper in your sights.', 'warn'); return; }
+      spend(A.cd);
+      g.event(['beam', p.id, t.id, 'overload']);
+      g.later(0.6, () => { if (!t.dead) explode(g, t.x, t.y + 1, t.z, 3.5, 130, p, 'overload'); });
+      break;
+    }
+    // ---- Wraith
+    case 'blink': {
+      if (!ready()) return;
+      const f = dirFromYawPitch(yaw, 0);
+      let to = null;
+      for (const dd of [10, 8.5, 7, 5.5, 4]) {
+        const x = p.x + f.x * dd, z = p.z + f.z * dd;
+        if (!navWalkable(g.world, x, z)) continue;
+        const y = groundAt(g.world, x, z, p.y + 2.5);
+        if (Math.abs(y - p.y) > 2.5 || !lineOfSight(g.world, p.x, p.y + 1, p.z, x, y + 1, z)) continue;
+        to = { x, y, z }; break;
+      }
+      if (!to) { g.pnote(p, 'Nowhere to blink to.', 'warn'); return; }
+      spend(A.cd);
+      const ox = p.x, oz = p.z;
+      g.teleport(p, to.x, to.y + 0.02, to.z);
+      g.event(['exec', p.id, 0, r2(ox), r2(oz), 0]);
+      break;
+    }
+    case 'veil': {
+      if (!ready()) return;
+      spend(A.cd);
+      let n = 0;
+      for (const o of g.players()) { if (o.downed || dist2(o.x, o.z, p.x, p.z) > 12) continue; cloakUp(g, o, A.dur); n++; }
+      g.note(`${p.name} veiled ${n} of the crew.`, 'stealth');
+      break;
+    }
+    // ---- Longshot
+    case 'ricochet': if (!ready()) return; spend(A.cd); p.act.ricochet = g.time + A.dur; g.pnote(p, 'Ricochet round loaded: your next hit jumps to two more targets', 'stealth'); g.event(['charge', p.id]); break;
+    case 'execmark': if (!ready()) return; spend(A.cd); p.act.execmark = g.time + A.dur; g.pnote(p, "Executioner's mark: double damage on anything marked", 'stealth'); g.event(['charge', p.id]); break;
   }
 }
 
@@ -336,15 +657,16 @@ export function breakCloak(g, p) {
 
 export function tickClass(g, p, dt) {
   const C = classOf(p);
-  if (C.abilities.f && C.abilities.f.id === 'knife' && p.knives < 3) {
+  const ids = new Set(Object.values(C.abilities).map((a) => a.id));
+  if (ids.has('knife') && p.knives < 3) {
     p.knifeRegen += dt;
     if (p.knifeRegen >= CLASSES.spy.abilities.f.recharge) { p.knifeRegen = 0; p.knives++; }
   }
-  if (C.abilities.f && C.abilities.f.id === 'mine' && p.mines < 2) {
+  if (ids.has('mine') && p.mines < 2) {
     p.mineRegen += dt;
     if (p.mineRegen >= CLASSES.sniper.abilities.f.recharge) { p.mineRegen = 0; p.mines++; }
   }
-  if (p.overshield > 0 && !active(g, p, 'bulwark') && !active(g, p, 'adrenal')) p.overshield = 0;
+  if (p.overshield > 0 && !active(g, p, 'bulwark') && !active(g, p, 'adrenal') && !active(g, p, 'aegis')) p.overshield = 0;
   // snipers (and phantoms even more) melt into cover when they stay low and still
   const still = Math.hypot(p.vx || 0, p.vz || 0) < 0.4 && p.crouch;
   p.stillT = still ? (p.stillT || 0) + dt : 0;
@@ -361,10 +683,10 @@ export function absorbDamage(g, p, amt) {
 export function cooldownView(g, p) {
   const C = classOf(p);
   const out = {};
-  for (const k of ['q', 'f', 'x']) {
+  for (const k of SLOTS) {
     const A = C.abilities[k];
     if (!A) continue;
-    let cd = Math.max(0, p.cdk[k] - g.time), max = A.cd || 0;
+    let cd = Math.max(0, (p.cdk[A.id] || 0) - g.time), max = (A.cd || 0) * ((C.cdScale && C.cdScale[A.id]) || 1);
     if (A.id === 'push' || A.id === 'pull') { cd = Math.max(0, p.cd[A.id] - g.time); max = POWERS[A.id].cooldown; }
     if (A.id === 'suggest') { cd = Math.max(0, (p.cd.suggest || 0) - g.time); max = POWERS.suggest.cooldown; }
     const act = A.dur ? Math.max(0, (p.act[A.id] || 0) - g.time) : 0;

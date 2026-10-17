@@ -18,7 +18,7 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   | Sniper | LR-9 long-las (one bolt drops a trooper; right mouse scopes in), camouflage that improves while you keep still | Overcharged shot (double damage, punches through) / Proximity mine (2 charges) / Recon sweep (marks every hostile ahead for the crew, through walls) |
 
 - **Experience and levels.** Jobs, takedowns (more if nobody saw), cameras, sabotage, revives, gathering, crafting and fitting upgrades all earn XP. Each level up to 20 adds 3 health and trims ability cooldowns. Your level is saved with your profile.
-- **Advanced classes at level 10.** Open the Career screen (K) to specialize. You can switch back at any time you're not being hunted, and the choice is kept per class.
+- **Advanced classes at level 10.** Until then a character can switch classes freely at the start screen. Open the Career screen (K) to specialize; it warns you first, because taking an advanced class locks that character into its class for good. The advanced class also opens a fourth ability key, Z.
 
   | Base | Advanced class | What changes |
   | --- | --- | --- |
@@ -28,6 +28,26 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   | Medic | Combat Surgeon | Stims heal 30% more. X: Adrenal, an overshield plus 25% more damage for the crew nearby |
   | Spy | Agent | Whisper suppressed pistol, slices twice as fast, guards are slower to notice you. F: holo-decoy that draws guards with noise |
   | Sniper | Phantom | Better camouflage. X: Phase cloak, whose first shot keeps you hidden and hits 50% harder. Overcharged shots pierce every target in line |
+
+- **Branches at level 15.** Each advanced class splits two ways. A branch adds a passive perk, its own look, and two abilities (one at level 15, one at 18). Resetting a branch back to the advanced class costs three average jobs' pay (6,660cr), and then you can take the other path. You choose which unlocked abilities sit on Q, F, X and Z from the Career screen.
+
+  | Advanced | Branch | Perk | Abilities (15 / 18) |
+  | --- | --- | --- | --- |
+  | Guardian | Shieldwall Sentinel | +25 health; crew near you take 15% less damage | Aegis (crew overshield) / Challenge (guns turn on you; you take 40% less) |
+  | Guardian | Bladedancer | Blade +35% | Riposte (every bolt in front goes back) / Whirlwind |
+  | Bounty Hunter | Manhunter | Bounty marks last twice as long | Snare net / Open season (bounty on everyone ahead) |
+  | Bounty Hunter | Gunfighter | Pistols +20% | Quickdraw (harder, heat-free shots) / Trick shot (curving bolts into up to four targets) |
+  | Commando | Vanguard | Jump jets recharge 40% faster | Jet slam / Barrage (three blasts on a marked spot) |
+  | Commando | Heavy Gunner | +40 health, rifle +25% | Rail shot (pierces six) / Sentry turret |
+  | Combat Surgeon | Field Medic | Revives take half the time | Mending field / Lifeline (nobody nearby can go down) |
+  | Combat Surgeon | Toxicologist | Bolts poison | Toxin cloud (silent) / Sedative dart (silent takedown) |
+  | Agent | Infiltrator | Guards notice you even slower | Disguise (unseen unless they're right next to you) / Blackout (cameras and nearby guards) |
+  | Agent | Saboteur | Slices three times as fast | EMP pulse / Overload (a trooper's power pack explodes) |
+  | Phantom | Wraith | Phase cloak lasts 50% longer | Shadow blink / Veil (cloaks the crew) |
+  | Phantom | Longshot | Long-las +25% | Ricochet round / Executioner's mark (double damage on marked targets) |
+
+- **Your ship is home base.** Press E at the Wayfarer's ramp to restock charges and medpacks (20cr each; mines and knives free), call your own speeder bike in your crew colour, or go aboard. A wrecked speeder takes 30 seconds to replace.
+- **Speeder theft.** Every speeder in town belongs to someone. Hold E to hotwire a parked one, or pull a rider off a stopped one. Anyone who sees it reports it unless you stop them; an unseen theft is noticed later. Reported thefts give your crew heat in that town: prices go up, the owner's friends come after you, and at high heat the town militia turns out. Heat fades while you stay away, or pay the fine at the exchange. Give a stolen speeder back where you took it for a small reward and less heat, leave it somewhere quiet and it finds its way home, or sell it to the exchange's fence. A stolen hauler takes its cargo with it, so the town runs short.
 
 - **Co-op for up to 4 players**, three ways:
   - Peer-to-peer from a static site such as GitHub Pages: one player hosts, friends join with a crew code.
@@ -114,8 +134,8 @@ Open `http://localhost:8080`, enter a callsign and a crew room name, then make p
 | Draw / holster your weapon | R |
 | Fire / swing | Left mouse |
 | Aim down sights / block and deflect (Warden) | Right mouse |
-| Class abilities | Q / F / X |
-| Career: level, XP and advanced class | K |
+| Class abilities (Z once you take an advanced class) | Q / F / X / Z |
+| Career: level, XP, advanced class, branch and ability keys | K |
 | Throwable (thermal charge, or noisemaker for the Spy) / medpack or stim | G / H |
 | Interact (hold to slice terminals, cut locks, revive) | E |
 | First / third person | V |
@@ -169,6 +189,8 @@ node tools/travel-test.js     # checks every planet's layout, flies the Wayfarer
 node tools/economy-test.js    # workers, hunters, traders and traffic for 10 minutes per planet, then gather/trade/craft/upgrade
 node tools/classes-test.js    # exercises every class ability
 node tools/career-test.js     # Sniper kit, XP and levels, and every advanced class
+node tools/branch-test.js     # class lock-in, the four-key loadout, branches, resets and all 24 branch abilities
+node tools/theft-test.js      # the ramp menu, personal speeders, theft, witnesses, heat, militia, fines and the fence
 node tools/soak.js 240 korrun # 4 scripted bots for 4 minutes on a planet; reports tick cost and errors
 ```
 

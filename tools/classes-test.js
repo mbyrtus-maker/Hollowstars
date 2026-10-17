@@ -103,7 +103,7 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
   // Execute on an alert, healthy guard staggers instead of killing
   const e2 = guard(g, 'sec'); calm(e2); e2.ai.state = 'combat'; e2.ai.sus = 1;
   e2.x = 138 + S; e2.z = 13; e2.y = groundAt(g.world, 138 + S, 13, 30);
-  place(g, p, 142 + S, 13); faceAt(p, e2); g.rebuildSpatial(); p.cdk.q = 0;
+  place(g, p, 142 + S, 13); faceAt(p, e2); g.rebuildSpatial(); p.cdk = {};
   g.handle('p0', { t: 'ab', k: 'q', yaw: p.yaw, pitch: p.pitch });
   check(!e2.dead && e2.stagger > 0, 'spy: Execute on a healthy, alert guard is a heavy staggering hit');
   // Throwing knife

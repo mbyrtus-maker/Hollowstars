@@ -8,7 +8,7 @@ import { isUnaware } from './ai.js';
 const HIT_R = { [K.CRITTER]: 0.6, [K.SPEEDER]: 1.3, [K.CAMERA]: 0.42, [K.PICKUP]: 0, [K.TRAFFIC]: 1.2 };
 
 export function hittable(e) {
-  return !e.dead && e.kind !== K.PICKUP && e.kind !== K.GRENADE && e.kind !== K.MINE && e.kind !== K.DECOY;
+  return !e.dead && e.kind !== K.PICKUP && e.kind !== K.GRENADE && e.kind !== K.MINE && e.kind !== K.DECOY && e.kind !== K.TURRET && e.kind !== K.CLOUD;
 }
 
 // Guardians' Bastion domes swallow enemy bolts that cross them
@@ -126,15 +126,17 @@ function tryDeflect(game, p, b, hx, hy, hz) {
   if (b.team !== 'enemy' || p.weapon !== 'blade' || !p.drawn || p.vehicle || p.downed) return false;
   const bw = WEAPONS.blade;
   const blocking = p.blocking;
-  const PC = effectiveClass(p.cls, p.adv);
+  const PC = effectiveClass(p.cls, p.adv, p.branch);
+  const riposte = (p.act && p.act.riposte || 0) > game.time;
   const inYaw = yawTo(0, 0, -b.vx, -b.vz);
-  if (Math.abs(angleDiff(p.yaw, inYaw)) > (blocking ? Math.max(bw.deflectCone, PC.deflectCone || 0) : (PC.deflectCone || bw.autoDeflectCone))) return false;
+  if (Math.abs(angleDiff(p.yaw, inYaw)) > (blocking || riposte ? Math.max(bw.deflectCone, PC.deflectCone || 0) : (PC.deflectCone || bw.autoDeflectCone))) return false;
   const att = p.upgrades.attune ? 0.6 : 1;
   const cost = (blocking ? bw.deflectFocus : bw.autoDeflectFocus) * att;
-  if (blocking) { if (p.focus < cost) return false; p.focus -= cost; p.focusUsedAt = game.time; }
+  if (riposte) { /* free while it lasts */ }
+  else if (blocking) { if (p.focus < cost) return false; p.focus -= cost; p.focusUsedAt = game.time; }
   else p.focus = Math.max(0, p.focus - cost); // the automatic catch never fails, it just tires you
   // a Guardian holding block always sends it home
-  const perfect = blocking && (game.time - p.blockStart < bw.perfectWindow || p.adv === 'guardian');
+  const perfect = riposte || (blocking && (game.time - p.blockStart < bw.perfectWindow || p.adv === 'guardian'));
   const shooter = game.ents.get(b.owner);
   const sp = Math.hypot(b.vx, b.vy, b.vz) * 1.15;
   let d;
@@ -208,10 +210,11 @@ export function stepGrenades(game, dt) {
   }
 }
 
-export function explode(game, x, y, z, radius, dmg, src, cause) {
+export function explode(game, x, y, z, radius, dmg, src, cause, spare) {
   game.event(['boom', +x.toFixed(2), +y.toFixed(2), +z.toFixed(2), radius]);
   game.noise(x, y, z, WEAPONS.grenade.noise, src && src.kind === K.PLAYER ? src : null, true);
   for (const e of [...game.ents.values()]) {
+    if (e === spare) continue;
     if (!hittable(e) || e.kind === K.CAMERA && dist2(x, z, e.x, e.z) > radius) continue;
     const cy = e.y + 0.9;
     const d = Math.hypot(e.x - x, cy - y, e.z - z);

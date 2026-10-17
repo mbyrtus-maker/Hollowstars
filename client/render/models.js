@@ -116,6 +116,55 @@ export function makeMine(color = '#ff4030') {
   return g;
 }
 
+// A Heavy Gunner's sentry turret: tripod, swivel head and a stubby twin barrel
+export function makeTurret(color = '#ffb13b') {
+  const g = new THREE.Group();
+  const leg = mat(0x3a3d45, { metal: 0.6, rough: 0.5 });
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const l = mesh(cylG(0.035, 0.04, 0.85, 6), leg, Math.sin(a) * 0.26, 0.38, Math.cos(a) * 0.26);
+    l.rotation.x = Math.cos(a) * 0.45; l.rotation.z = -Math.sin(a) * 0.45;
+    g.add(l);
+  }
+  const head = new THREE.Group();
+  head.position.y = 0.86;
+  head.add(mesh(boxG(0.34, 0.24, 0.42), mat(0x4a4e58, { metal: 0.55, rough: 0.45 }), 0, 0.06, 0));
+  head.add(mesh(boxG(0.36, 0.05, 0.3), mat(new THREE.Color(color).getHex(), { rough: 0.6 }), 0, 0.2, 0.02));
+  for (const x of [-0.07, 0.07]) { const b = mesh(cylG(0.03, 0.03, 0.5, 8), mat(0x22242a, { metal: 0.7 }), x, 0.05, -0.42); b.rotation.x = Math.PI / 2; head.add(b); }
+  const eye = mesh(new THREE.SphereGeometry(0.04, 8, 6), glowMat(0xff5a3a, 3), 0, 0.1, -0.22, false);
+  head.add(eye);
+  g.add(head);
+  g.userData.head = head;
+  g.userData.eye = eye;
+  return g;
+}
+
+// Toxin clouds (green, churning) and mending fields (a soft green ring that pulses)
+export function makeCloud(heal, radius) {
+  const g = new THREE.Group();
+  const col = heal ? 0x7dff9a : 0x9bdc4a;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(radius - 0.25, radius, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06;
+  g.add(ring);
+  const puffs = [];
+  const n = heal ? 0 : 14;
+  for (let i = 0; i < n; i++) {
+    const p = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0x8ab83a, transparent: true, opacity: 0.16, depthWrite: false }));
+    const a = Math.random() * Math.PI * 2, r = Math.random() * radius * 0.7;
+    p.position.set(Math.cos(a) * r, 0.6 + Math.random() * 1.2, Math.sin(a) * r);
+    p.scale.setScalar(1 + Math.random() * 1.4);
+    p.userData.seed = Math.random() * 10;
+    g.add(p); puffs.push(p);
+  }
+  if (heal) {
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.1, depthWrite: false, toneMapped: false }));
+    disc.rotation.x = -Math.PI / 2; disc.position.y = 0.05;
+    g.add(disc);
+  }
+  g.userData = { ring, puffs };
+  return g;
+}
+
 export function makeKnife() {
   const g = new THREE.Group();
   g.add(mesh(cylG(0.02, 0.022, 0.12, 6), mat(0x2a2422), 0, 0, 0));

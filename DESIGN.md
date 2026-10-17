@@ -62,7 +62,7 @@ Six classes are chosen at startup, and each has a signature weapon and Q/F/X abi
 - **Spy.** Knives, a cloak, noisemakers, throwing knives, and Execute: blink behind a guard and finish him.
 - **Sniper.** A long-las that kills a Lancer in one bolt, a scope, overcharged piercing shots, proximity mines, a recon sweep that marks hostiles for the crew, and camouflage that builds while still.
 
-**Levels and advanced classes (built).** XP comes from everything the crew does, not just killing: jobs pay `reward / 5 + 100` (more for a ghost run), silent takedowns pay extra, and gathering, crafting and upgrading pay a little. Levels run 1-20 with a growing curve (`100 + 50 × (level − 1)` XP per level). Each level gives +3 health and 1% shorter cooldowns. At level 10 every class opens one advanced class, which merges over the base class: extra health, a changed or added ability, and sometimes a new weapon. The choice is stored per class, so a player who swaps class keeps each specialization.
+**Levels and advanced classes (built).** XP comes from everything the crew does, not just killing: jobs pay `reward / 5 + 100` (more for a ghost run), silent takedowns pay extra, and gathering, crafting and upgrading pay a little. Levels run 1-20 with a growing curve (`100 + 50 × (level − 1)` XP per level). Each level gives +3 health and 1% shorter cooldowns. At level 10 every class opens one advanced class, which merges over the base class: extra health, a changed or added ability, and sometimes a new weapon.
 
 | Base | Advanced | Identity |
 | --- | --- | --- |
@@ -73,17 +73,14 @@ Six classes are chosen at startup, and each has a signature weapon and Q/F/X abi
 | Spy | Agent | Suppressed pistol, fast slicing, holo-decoy |
 | Sniper | Phantom | Phase cloak shots, full-pierce overcharge |
 
+**Branching class tree (built).**
+- **Locking in.** Before level 10 a character switches freely between base classes at the start screen. Taking an advanced class locks that character (its callsign) into that class line for good; the Career screen shows a warning and asks for confirmation first, and afterwards the start screen offers only that class for that callsign. The server enforces the lock.
+- **Branches.** At level 15 each advanced class picks one of two branches. A branch adds a passive perk, a look layered over the advanced look, and two abilities that unlock at 15 and 18 (see the README table for all twelve).
+- **Resetting.** A branch can be reset back to the advanced class, never further. The price is fixed at three times the average job reward on the board (6,660cr today). Jobs don't scale with level yet, so "three level-15 missions" is three average jobs; once jobs scale, this should become three average level-15 rewards.
+- **Choosing abilities.** Unlocked abilities form a pool (base, advanced, branch). The player chooses what sits on Q, F and X, plus Z once they have an advanced class. Newly unlocked abilities drop into any empty key; otherwise they wait in the pool with a prompt to slot them. Cooldowns follow the ability, not the key, so swapping keys never skips one.
+
 Planned:
-- **Branching class tree (next, not yet built).** After the first advanced class, each one splits into two paths. The player picks one and keeps going down it, unlocking more abilities as they level.
-  - Level 10: the base class becomes its advanced class (built).
-  - Later level (around 15): choose one of two branches. For example, a Guardian goes on as a shield-wall protector or as a blade duelist, and a Commando as a jump-jet assault trooper or a heavy-weapons specialist.
-  - Each branch then has its own run of abilities that unlock at set levels up to 20, possibly with the level cap raised to make room.
-  - **Locking in a class.** Before level 10, a character can switch freely between all base classes. Choosing an advanced class at level 10 locks that character into that class line for good. The Career screen must warn about this before the choice is confirmed, for example: "Becoming a Guardian locks this character in as a Warden-Guardian for good. You won't be able to switch classes again. Continue?" After locking in, the class picker at startup shows only that character's class.
-  - **Resetting a branch.** A player can reset a branch back to their advanced class and then pick a branch again. The reset never goes further than that: a character can't undo their advanced class or flip to a different class line. This changes today's build, where the Career screen lets you return to the base class and the advanced class is kept separately for every class.
-  - **Reset cost.** A fixed price: what 3 level-15 missions pay, at the average level-15 mission reward (3 × that average). It doesn't change with the player's own level, so a reset costs the same at level 16 as at level 20.
-  - **Choosing abilities.** Unlocked abilities go into a pool. The player picks which ones sit in their ability slots, from the Career screen.
-  - **A fourth slot at level 10.** Q, F and X stay for everyone. Unlocking the advanced class adds a fourth ability slot. Its key is still to be chosen (Z is free; C and V are taken by crouch and camera).
-  - **Looks.** Every advanced class has its own look (built), and each branch adds another one on top.
+- A third tier past level 20, and more branch abilities per path.
 - Class skill trees.
 - A second weapon slot unlocked through progression (a Warden can never use a blaster).
 - Class-specific missions: a Medic evacuation, a Spy infiltration.
@@ -123,7 +120,7 @@ Planned:
 
 Each rung uses the same entity, damage and networking model as infantry.
 
-1. **Ground: speeders** (in now; personal speeders called from the Wayfarer are planned, see below). Planned: walkers, armoured transports, turret emplacements, and boarding enemy transports at speed.
+1. **Ground: speeders** (in now, including each player's own bike called from the Wayfarer; see below). Planned: walkers, armoured transports, turret emplacements, and boarding enemy transports at speed.
 2. **Atmosphere: fighters, gunships, dropships.**
    - Arcade-sim flight with lift, drag and stall.
    - Multi-seat dropships (pilot plus door gunners) for the crew.
@@ -136,23 +133,23 @@ Each rung uses the same entity, damage and networking model as infantry.
    - Interior: a full infantry level built from the same building kit as Garrison Seven, with bridges, engine rooms and detention decks.
    - Knock out the shields, land in the hangar, fight to the bridge or the reactor.
 
-### The ship as home base, and speeder theft (planned, not yet built)
+### The ship as home base, and speeder theft (built)
 
 **Ship-side menu.** Standing at the foot of the Wayfarer's ramp and pressing E opens a menu with three choices:
-- **Refill gear:** tops up charges or noisemakers, medpacks or stims, and mine charges to the class maximum. It's free, or a small fee scaled to what's refilled, to keep it from replacing the merchants.
-- **Call a speeder:** the player's own speeder bike rolls out of the hold beside the ramp. Each player has at most one out at a time; calling a new one sends the old one back. Their speeder tune upgrades apply to it. If it's wrecked, there's a short cooldown before another can be called.
-- **Board the ship:** goes aboard, the same as walking up the ramp today.
+- **Restock:** tops up charges or noisemakers and medpacks or stims to the class maximum at 20cr each (merchants charge 90-120), and mines and throwing knives for free.
+- **Call your speeder:** the player's own speeder bike, painted in their crew colour, rolls down beside the ramp. Each player has one; calling again brings the same bike back to the ramp. Crewmates can ride each other's. If it's wrecked, there's a 30-second wait before another can be called.
+- **Go aboard:** boards the ship.
 
 **No more free speeders in towns.** The parked speeders that anyone can ride today are removed. Every speeder in a town now belongs to someone: a townsperson's bike, a trader's landspeeder, or a hauler. They can still be taken, but taking one is theft.
 
 **Theft.**
 - **Taking one.** Riding off on someone else's speeder means holding E to hotwire it. That takes a few seconds and is quicker for an Agent, who slices faster. A parked speeder with no one near is the safe option. Pulling a rider off theirs is an open, violent theft.
 - **Witnesses.** It works like stealth. Townsfolk and guards who see the theft react: the owner shouts, bystanders run, and a witness who gets away reports it. If no one sees it, it's only discovered when the owner comes back.
-- **Heat.** A reported theft gives the crew heat in that town. Low heat means merchants charge more and the owner and their friends come after the speeder. High heat calls in the town militia and, near a Concordance site, Lancer patrols on speeders. Heat fades over time while out of sight, or can be cleared by paying a fine at the town's exchange.
-- **Getting rid of it.** A stolen speeder is flagged. It can be returned to its owner (heat drops and there's a small reward), abandoned out of sight, or sold to a fence for salvage, which pays but adds heat if the fence is caught.
+- **Heat.** A reported theft gives the crew heat in that town (35 for a witnessed hotwire, 45 for pulling someone off their ride, 15 when an unseen theft is discovered after 90 seconds). Any heat raises exchange prices (buy +heat/2 %, sell −heat/3 %). At 20 the owner's friends (two armed townsfolk) come after whoever is in town; at 60 the militia turns out (five). Militia never trip the garrison alarm. Killing one adds 20 heat and costs 100cr. Heat fades slowly in town while nobody is fighting the militia and quickly while the crew stays out of town. The fine at the exchange is 15cr per point of heat. Not built yet: Lancer speeder patrols near Concordance sites.
+- **Getting rid of it.** A stolen speeder is flagged. Ride it back to where it was taken to give it back (−25 heat, +40cr). Leave it with no crew within 50 m for a minute and it finds its way home (an unreported theft is then forgotten). Or park it by the exchange and sell it to the fence for 180-420cr plus salvage, with a one-in-four chance the fence is caught and names you (+20 heat).
 - **Economy tie-in.** A stolen hauler takes its cargo with it, which leaves the town short of whatever it was carrying, so prices for those goods rise.
 
-**Telling new players.** The first job on Dusk Varo tells the crew that they can call a speeder at their ship, and their first landing on each new planet repeats the hint. The ship menu's speeder entry is highlighted until they use it once.
+**Telling new players.** The first job's brief says to call a speeder at the ship, the welcome and every landing repeat the hint, and the ship menu highlights the speeder until the player has called it once (saved with the callsign).
 
 ### Seamless planet-to-orbit transition
 

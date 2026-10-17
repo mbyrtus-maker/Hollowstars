@@ -163,22 +163,129 @@ export const ADVANCED = {
   },
 };
 
-// The class a player actually plays: their base class with any advanced class laid over it
+// Branches: at level 15 every advanced class splits two ways. A branch adds a passive perk,
+// its own look, and two abilities that unlock at the levels listed.
+export const BRANCHES = {
+  sentinel: {
+    adv: 'guardian', name: 'Shieldwall Sentinel', role: 'Holds the line', hp: 25, auraDR: 0.15,
+    desc: 'Crewmates near you take 15% less damage. Throw an aegis over the crew, then challenge every gun in range to shoot you instead.',
+    abilities: [{ id: 'aegis', name: 'Aegis', cd: 24, lv: 15 }, { id: 'taunt', name: 'Challenge', cd: 28, dur: 6, lv: 18 }],
+  },
+  duelist: {
+    adv: 'guardian', name: 'Bladedancer', role: 'Blade duelist', weaponBonus: 0.35,
+    desc: 'The arc blade hits 35% harder. Riposte sends every bolt in front of you straight back, and Whirlwind cuts down everything within reach.',
+    abilities: [{ id: 'riposte', name: 'Riposte', cd: 16, dur: 5, lv: 15 }, { id: 'whirl', name: 'Whirlwind', cd: 12, lv: 18 }],
+  },
+  manhunter: {
+    adv: 'bounty', name: 'Manhunter', role: 'Nets and open season', markScale: 2,
+    desc: 'Bounty marks last twice as long. A snare net pins a target in place, and Open Season puts a bounty on everyone ahead of you.',
+    abilities: [{ id: 'net', name: 'Snare net', cd: 14, lv: 15 }, { id: 'hunt', name: 'Open season', cd: 40, dur: 12, lv: 18 }],
+  },
+  gunfighter: {
+    adv: 'bounty', name: 'Gunfighter', role: 'Fastest hands in the Reach', weaponBonus: 0.2,
+    desc: 'Pistols hit 20% harder. Quickdraw makes every shot count for more and run cold, and a trick shot curves bolts into everyone nearby.',
+    abilities: [{ id: 'quickdraw', name: 'Quickdraw', cd: 20, dur: 6, lv: 15 }, { id: 'trickshot', name: 'Trick shot', cd: 16, lv: 18 }],
+  },
+  vanguard: {
+    adv: 'commando', name: 'Vanguard', role: 'Jump-jet assault', cdScale: { jets: 0.6 },
+    desc: 'Jump jets recharge 40% faster. Jet slam lands like a thermal charge, and Barrage calls three blasts down on the spot you mark.',
+    abilities: [{ id: 'slam', name: 'Jet slam', cd: 14, lv: 15 }, { id: 'barrage', name: 'Barrage', cd: 35, lv: 18 }],
+  },
+  heavy: {
+    adv: 'commando', name: 'Heavy Gunner', role: 'Heavy weapons', hp: 40, weaponBonus: 0.25,
+    desc: 'Forty more health and a rifle that hits 25% harder. The rail shot goes through a whole squad, and a sentry turret holds a corner for you.',
+    abilities: [{ id: 'rail', name: 'Rail shot', cd: 12, lv: 15 }, { id: 'turret', name: 'Sentry turret', cd: 40, dur: 20, lv: 18 }],
+  },
+  lifeline: {
+    adv: 'surgeon', name: 'Field Medic', role: 'Nobody dies on my watch', reviveScale: 2,
+    desc: 'Revives take half the time. Drop a mending field the crew can fight in, and Lifeline keeps everyone nearby from going down.',
+    abilities: [{ id: 'field', name: 'Mending field', cd: 24, dur: 8, lv: 15 }, { id: 'lifeline', name: 'Lifeline', cd: 45, dur: 10, lv: 18 }],
+  },
+  toxin: {
+    adv: 'surgeon', name: 'Toxicologist', role: 'Poisons and sedatives', poison: true,
+    desc: 'Your bolts poison what they hit. A toxin cloud chokes a whole room without a sound, and a sedative dart drops a guard where he stands.',
+    abilities: [{ id: 'cloud', name: 'Toxin cloud', cd: 20, dur: 6, lv: 15 }, { id: 'sedate', name: 'Sedative dart', cd: 28, lv: 18 }],
+  },
+  infiltrator: {
+    adv: 'agent', name: 'Infiltrator', role: 'Walks in the front door', detect: 0.6,
+    desc: 'Guards notice you even slower. A Concordance disguise lets you walk past anyone who isn\'t right next to you, and Blackout blinds every camera and guard nearby.',
+    abilities: [{ id: 'disguise', name: 'Disguise', cd: 40, dur: 20, lv: 15 }, { id: 'blackout', name: 'Blackout', cd: 45, dur: 25, lv: 18 }],
+  },
+  saboteur: {
+    adv: 'agent', name: 'Saboteur', role: 'EMPs and overloads', sliceSpeed: 3,
+    desc: 'Slices three times as fast. An EMP pulse kills cameras and stuns guards, and Overload makes a trooper\'s own power pack explode.',
+    abilities: [{ id: 'emp', name: 'EMP pulse', cd: 22, lv: 15 }, { id: 'overload', name: 'Overload', cd: 26, lv: 18 }],
+  },
+  wraith: {
+    adv: 'phantom', name: 'Wraith', role: 'Blinks through shadows', durScale: { phase: 1.5 },
+    desc: 'Phase cloak lasts half again as long. Shadow blink puts you ten metres ahead in an instant, and Veil cloaks the whole crew.',
+    abilities: [{ id: 'blink', name: 'Shadow blink', cd: 8, lv: 15 }, { id: 'veil', name: 'Veil', cd: 40, dur: 6, lv: 18 }],
+  },
+  longshot: {
+    adv: 'phantom', name: 'Longshot', role: 'Kills from a kilometre', weaponBonus: 0.25,
+    desc: 'The long-las hits 25% harder. A ricochet round jumps to two more targets, and the Executioner\'s mark doubles your damage on anything marked.',
+    abilities: [{ id: 'ricochet', name: 'Ricochet round', cd: 16, dur: 8, lv: 15 }, { id: 'execmark', name: 'Executioner\'s mark', cd: 30, dur: 10, lv: 18 }],
+  },
+};
+export const branchesFor = (adv) => Object.entries(BRANCHES).filter(([, b]) => b.adv === adv).map(([id]) => id);
+
+export const SLOTS = ['q', 'f', 'x', 'z'];
+
+// Every ability a character can slot: base class, advanced class, then branch (each with the
+// level it unlocks at)
+export function abilityPool(cls, adv, branch) {
+  const B = CLASSES[cls] || CLASSES.soldier;
+  const A = adv && ADVANCED[adv] && ADVANCED[adv].base === cls ? ADVANCED[adv] : null;
+  const R = A && branch && BRANCHES[branch] && BRANCHES[branch].adv === adv ? BRANCHES[branch] : null;
+  const out = Object.values(B.abilities).map((a) => ({ ...a, lv: 1, from: 'base' }));
+  if (A) for (const a of Object.values(A.abilities)) out.push({ ...a, lv: LEVELS.advancedAt, from: 'adv' });
+  if (R) for (const a of R.abilities) out.push({ ...a, from: 'branch' });
+  return out;
+}
+
+// Starting slots: the advanced class's abilities take their usual keys, and whatever they
+// pushed out moves to the fourth slot
+export function defaultSlots(cls, adv) {
+  const B = CLASSES[cls] || CLASSES.soldier;
+  const A = adv && ADVANCED[adv] && ADVANCED[adv].base === cls ? ADVANCED[adv] : null;
+  const m = { ...B.abilities, ...(A ? A.abilities : {}) };
+  const slots = { q: m.q ? m.q.id : null, f: m.f ? m.f.id : null, x: m.x ? m.x.id : null, z: null };
+  if (A) {
+    const used = new Set(Object.values(slots));
+    const spare = abilityPool(cls, adv).find((a) => !used.has(a.id));
+    if (spare) { const free = ['q', 'f', 'x'].find((k) => !slots[k]); slots[free || 'z'] = spare.id; }
+  }
+  return slots;
+}
+
+// The class a player actually plays: their base class with any advanced class and branch laid
+// over it, and their chosen abilities on Q, F, X (and Z once advanced)
 const CLASS_CACHE = new Map();
-export function effectiveClass(cls, adv) {
-  const key = cls + '/' + (adv || '');
+export function effectiveClass(cls, adv, branch, slots) {
+  const key = cls + '/' + (adv || '') + '/' + (branch || '') + '/' + (slots ? SLOTS.map((k) => slots[k] || '').join(',') : '');
   if (CLASS_CACHE.has(key)) return CLASS_CACHE.get(key);
   const B = CLASSES[cls] || CLASSES.soldier, A = adv && ADVANCED[adv] && ADVANCED[adv].base === cls ? ADVANCED[adv] : null;
-  const out = A ? { ...B, ...A, name: A.name, base: cls, adv, abilities: { ...B.abilities, ...A.abilities } } : { ...B, base: cls, adv: null };
+  const R = A && branch && BRANCHES[branch] && BRANCHES[branch].adv === adv ? BRANCHES[branch] : null;
+  const out = A ? { ...B, ...A, ...(R || {}), name: R ? R.name : A.name, advName: A.name, base: cls, adv, branch: R ? branch : null } : { ...B, base: cls, adv: null, branch: null };
+  out.hp = (A ? A.hp || 0 : 0) + (R ? R.hp || 0 : 0);
   if (A && A.grenades) { out.grenades = B.grenades + A.grenades; out.maxGrenades = B.maxGrenades + A.grenades; }
   if (A) out.weapon = A.weapon || B.weapon, out.weaponName = A.weaponName || B.weaponName;
+  const pool = abilityPool(cls, adv, out.branch);
+  const use = slots || defaultSlots(cls, adv);
+  out.abilities = {};
+  for (const k of SLOTS) {
+    if (k === 'z' && !A) continue;
+    const a = use[k] && pool.find((p) => p.id === use[k]);
+    if (a) out.abilities[k] = a;
+  }
+  out.pool = pool;
   CLASS_CACHE.set(key, out);
   return out;
 }
 export const advancedFor = (cls) => Object.entries(ADVANCED).filter(([, a]) => a.base === cls).map(([id]) => id);
 
 // Experience: every level adds a little health and shaves ability cooldowns
-export const LEVELS = { max: 20, advancedAt: 10, hpPer: 3, cdPer: 0.01 };
+export const LEVELS = { max: 20, advancedAt: 10, branchAt: 15, hpPer: 3, cdPer: 0.01 };
 export const xpToNext = (lv) => 100 + 50 * (lv - 1);
 export function levelOf(xp) {
   let lv = 1, need = xpToNext(1), left = xp;
@@ -248,7 +355,7 @@ export const MISSIONS = {
     name: 'The Silent Key',
     type: 'Rescue',
     giver: 'Oru Dask',
-    brief: 'The Concordance took Ilsa Varn, a courier who knows too much. Get the cell code from Oru in the cantina, break her out of Garrison Seven, and walk her to the Ridge LZ.',
+    brief: 'The Concordance took Ilsa Varn, a courier who knows too much. Get the cell code from Oru in the cantina, break her out of Garrison Seven, and walk her to the Ridge LZ. Garrison Seven is a long ride out: press E at the Wayfarer\'s ramp to call your speeder.',
     reward: 1500,
     ghostBonus: 750,
   },
@@ -288,17 +395,21 @@ export const MISSIONS = {
   },
 };
 
+// Resetting a branch costs what three level-15 jobs pay. Jobs don't scale with level yet, so
+// that's three times the average job on the board.
+export const BRANCH_RESET_COST = 3 * Math.round(Object.values(MISSIONS).reduce((a, m) => a + m.reward, 0) / Object.keys(MISSIONS).length);
+
 export const PLAYER_COLORS = ['#3fb6ff', '#7dff6a', '#ffb13b', '#e86bff'];
 export const BLADE_COLORS = ['#4fc8ff', '#6dff7a', '#ffd04a', '#d77bff'];
 
 // Entity kinds in snapshots
 export const K = {
   PLAYER: 1, LANCER: 2, OFFICER: 3, CIVILIAN: 4, MERCHANT: 5, INFORMANT: 6, PRISONER: 7,
-  CRITTER: 8, CAMERA: 9, SPEEDER: 10, PICKUP: 11, BARTENDER: 12, GRENADE: 13, TRAFFIC: 14, MINE: 15, DECOY: 16,
+  CRITTER: 8, CAMERA: 9, SPEEDER: 10, PICKUP: 11, BARTENDER: 12, GRENADE: 13, TRAFFIC: 14, MINE: 15, DECOY: 16, TURRET: 17, CLOUD: 18,
 };
 
 // Entity flag bits in snapshots
 export const F = {
   CROUCH: 1, BLOCK: 2, BLADE: 4, DEAD: 8, DOWNED: 16, DRIVING: 32, STAGGER: 64,
-  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072, ABOARD: 262144, MARKED: 524288,
+  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072, ABOARD: 262144, MARKED: 524288, DISGUISE: 1048576, STOLEN: 2097152, MILITIA: 4194304,
 };

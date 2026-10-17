@@ -26,6 +26,8 @@ jobs:
           node tools/travel-test.js
           node tools/economy-test.js
           node tools/career-test.js
+          node tools/branch-test.js
+          node tools/theft-test.js
       - name: Build the game
         run: npm run build -- --single
       - name: Commit the rebuilt page if it changed

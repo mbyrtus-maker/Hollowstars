@@ -274,6 +274,7 @@ export class Humanoid {
         this.part(S, rbox(0.1, 0.12, 0.08), 'plate', 0x3a4048, 0.15, 0.08, 0.13);
       }
       if (o.adv) this.advancedLook(o.adv, accent);
+      if (o.branch) this.branchLook(o.branch, accent);
       return;
     }
     // townsfolk, merchants, the prisoner
@@ -362,6 +363,77 @@ export class Humanoid {
     } else if (adv === 'phantom') {
       this.glowPart(H, new THREE.BoxGeometry(0.15, 0.025, 0.02), 0xb08aff, 0, 0.15, -0.115);
       this.part(H, rbox(0.15, 0.08, 0.04), 'cloth', 0x24262c, 0, 0.07, -0.095);
+    }
+  }
+
+  // Branches add a second layer on top of the advanced look
+  branchLook(br, accent) {
+    const S = this.spine, P = this.pelvis, H = this.head;
+    const disc = (r, t) => new THREE.CylinderGeometry(r, r, t, 18).rotateX(Math.PI / 2);
+    if (br === 'sentinel') {
+      // a tower shield slung on the back and a crested helm
+      this.part(S, rbox(0.42, 0.62, 0.05, 0.05), 'plate', 0xb8b0a0, 0, 0.26, 0.2);
+      this.part(S, rbox(0.06, 0.5, 0.06), 'plate', 0xc9a24a, 0, 0.26, 0.235);
+      this.part(H, ellipsoid(0.13, 0.14, 0.14, 14, 10), 'plate', 0xb8b0a0, 0, 0.15, 0.004);
+      this.part(H, rbox(0.03, 0.08, 0.2), 'plate', 0xc9a24a, 0, 0.29, 0.01);
+    } else if (br === 'duelist') {
+      // a long sash and a second hilt at the hip
+      this.part(S, rbox(0.06, 0.62, 0.014), 'cloth', 0x8a2a3a, -0.02, 0.27, -0.125, 0, 0, -0.65);
+      this.part(this.coatBone, lathe([[0.15, 0.06], [0.17, -0.2], [0.19, -0.5]], 12, 0.5), 'cloth', 0x6a1e2a);
+      this.part(P, new THREE.CylinderGeometry(0.022, 0.022, 0.22, 8), 'plate', 0x9a9ca4, -0.17, -0.02, 0.02, 0.5, 0, 0);
+      this.coatSwing = 0.6;
+    } else if (br === 'manhunter') {
+      // net launcher on the back and a wide-brimmed hat
+      this.part(S, new THREE.CylinderGeometry(0.07, 0.08, 0.46, 10), 'plate', 0x4a4438, 0.12, 0.32, 0.17, 0, 0, 0.35);
+      this.part(H, new THREE.CylinderGeometry(0.2, 0.2, 0.014, 16), 'leather', 0x3a2a1c, 0, 0.2, 0);
+      this.part(H, new THREE.CylinderGeometry(0.11, 0.12, 0.09, 14), 'leather', 0x3a2a1c, 0, 0.245, 0);
+    } else if (br === 'gunfighter') {
+      // a flat-crowned hat, a red neckerchief and twin holsters
+      this.part(H, new THREE.CylinderGeometry(0.18, 0.18, 0.012, 16), 'leather', 0x1e1814, 0, 0.21, 0);
+      this.part(H, new THREE.CylinderGeometry(0.11, 0.115, 0.07, 14), 'leather', 0x1e1814, 0, 0.25, 0);
+      this.part(S, ellipsoid(0.12, 0.05, 0.11, 10, 6), 'cloth', 0xa02a24, 0, 0.53, -0.04);
+      for (const s2 of [-1, 1]) this.part(P, rbox(0.06, 0.16, 0.08), 'leather', 0x2a1c12, s2 * 0.17, -0.06, 0);
+    } else if (br === 'vanguard') {
+      // swept jet wings on the pack and a gold visor
+      for (const s2 of [-1, 1]) this.part(S, rbox(0.3, 0.05, 0.14, 0.02), 'plate', 0x6a7262, s2 * 0.26, 0.4, 0.2, 0, 0, s2 * -0.5);
+      this.glowPart(H, new THREE.BoxGeometry(0.19, 0.03, 0.02), 0xffd27a, 0, 0.155, -0.145);
+    } else if (br === 'heavy') {
+      // bulky pauldrons and an ammo drum on the back
+      for (const [shb, s2] of [[this.shL, -1], [this.shR, 1]]) this.part(shb, new THREE.SphereGeometry(0.14, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), 'plate', 0x5a5e52, s2 * 0.02, 0.05, 0, 0, 0, s2 * -0.3);
+      this.part(S, disc(0.17, 0.14), 'plate', 0x3a3e3a, 0, 0.22, 0.27);
+      this.part(S, rbox(0.04, 0.4, 0.02), 'plate', 0xb08a4a, 0.08, 0.3, -0.13, 0, 0, 0.5);
+    } else if (br === 'lifeline') {
+      // a medic's pack with a glowing cross
+      this.part(S, rbox(0.28, 0.3, 0.13, 0.04), 'cloth', 0xe8e4da, 0, 0.3, 0.17);
+      this.glowPart(S, new THREE.BoxGeometry(0.04, 0.14, 0.01), 0x6aff9a, 0, 0.32, 0.24);
+      this.glowPart(S, new THREE.BoxGeometry(0.14, 0.04, 0.01), 0x6aff9a, 0, 0.32, 0.24);
+    } else if (br === 'toxin') {
+      // gas mask and twin canisters
+      this.part(H, rbox(0.14, 0.1, 0.07, 0.03), 'plate', 0x3a4a2a, 0, 0.06, -0.11);
+      for (const s2 of [-1, 1]) { this.part(H, disc(0.035, 0.05), 'plate', 0x6a7a3a, s2 * 0.06, 0.04, -0.15); this.part(S, new THREE.CylinderGeometry(0.05, 0.05, 0.3, 10), 'plate', 0x5a6a2a, s2 * 0.08, 0.3, 0.17); }
+      this.glowPart(S, new THREE.BoxGeometry(0.02, 0.18, 0.02), 0x9bdc4a, 0, 0.3, 0.2);
+    } else if (br === 'infiltrator') {
+      // a Concordance-grey officer's cap and collar
+      this.part(H, new THREE.CylinderGeometry(0.125, 0.12, 0.07, 14), 'cloth', 0x8a8c92, 0, 0.215, 0.005);
+      this.part(H, rbox(0.16, 0.012, 0.08), 'plate', 0x2a2c32, 0, 0.19, -0.1);
+      this.part(S, rbox(0.3, 0.06, 0.14), 'cloth', 0x8a8c92, 0, 0.5, -0.01);
+    } else if (br === 'saboteur') {
+      // goggles and a satchel of charges
+      for (const s2 of [-1, 1]) this.glowPart(H, disc(0.035, 0.02), 0x7ab8ff, s2 * 0.05, 0.16, -0.12);
+      this.part(H, rbox(0.22, 0.03, 0.03), 'leather', 0x2a1c12, 0, 0.16, -0.1);
+      this.part(P, rbox(0.18, 0.16, 0.08, 0.02), 'leather', 0x4a3424, -0.16, 0.0, 0.08, 0, 0, 0.2);
+      for (let i = 0; i < 3; i++) this.part(S, new THREE.CylinderGeometry(0.025, 0.025, 0.1, 8), 'plate', 0xc83a2a, -0.1 + i * 0.1, 0.06, -0.13);
+    } else if (br === 'wraith') {
+      // a tattered shroud
+      this.part(this.coatBone, lathe([[0.16, 0.06], [0.2, -0.15], [0.26, -0.45], [0.3, -0.75]], 10, 0.95), 'cloth', 0x24202e);
+      this.part(H, ellipsoid(0.15, 0.16, 0.16, 12, 8), 'cloth', 0x24202e, 0, 0.13, 0.02);
+      this.coatSwing = 0.9;
+    } else if (br === 'longshot') {
+      // a long scarf and a rangefinder over one eye
+      this.part(S, ellipsoid(0.13, 0.06, 0.12, 10, 6), 'cloth', 0x8a7a5a, 0, 0.53, -0.02);
+      this.part(S, rbox(0.06, 0.5, 0.014), 'cloth', 0x8a7a5a, 0.08, 0.32, 0.14, 0.2, 0, 0.1);
+      this.part(H, new THREE.CylinderGeometry(0.025, 0.025, 0.08, 8).rotateX(Math.PI / 2), 'plate', 0x2a2c32, 0.05, 0.16, -0.14);
+      this.glowPart(H, disc(0.022, 0.01), 0xff5a3a, 0.05, 0.16, -0.185);
     }
   }
 

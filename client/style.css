@@ -369,7 +369,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--lumen); out
 .career .bigxp { height: 8px; background: rgba(255,255,255,0.08); }
 .career .bigxp div { height: 100%; background: linear-gradient(90deg, #c98d2e, #ffd27a); }
 .adv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; }
-.adv-card { padding: 14px 16px; background: rgba(255,255,255,0.04); border-left: 2px solid var(--panel-line); display: grid; gap: 8px; }
+.adv-card { padding: 14px 16px; background: rgba(255,255,255,0.04); border-left: 2px solid var(--panel-line); display: grid; gap: 8px; align-content: start; }
 .adv-card.on { border-left-color: var(--ember); background: rgba(255,138,61,0.08); }
 .adv-card h3 { margin: 0; font: 600 19px var(--display); }
 .adv-card .role { font-size: 12.5px; color: var(--sand-dim); }
@@ -387,3 +387,32 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--lumen); out
 .scope-ring .dot { left: 50%; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: #ff4a3a; transform: translate(-50%, -50%); box-shadow: 0 0 6px #ff4a3a; }
 .scope-ring .mil { left: 50%; width: 14px; height: 1.5px; transform: translateX(-50%); }
 .scope-ring .m1 { top: 58%; } .scope-ring .m2 { top: 64%; width: 10px; } .scope-ring .m3 { top: 70%; width: 7px; }
+.career h3.sec { font: 600 15px var(--display); color: #ffd6a3; margin: 6px 0 0; }
+.warn-lock { font-size: 13.5px; line-height: 1.45; padding: 10px 12px; background: rgba(224, 56, 75, 0.14); border-left: 2px solid var(--tithe); color: var(--sand); }
+.warn-lock b { color: #ff9aa5; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.loadout { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px 12px; }
+.loadout label { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.loadout select { flex: 1; min-width: 0; font: inherit; color: var(--sand); background: rgba(255,255,255,0.06); border: 1px solid var(--panel-line); padding: 6px 8px; }
+.loadout select option { background: #1a1422; }
+.adv-card .ab em { font-style: normal; color: #ffd27a; font-size: 11.5px; }
+.ci-lock { margin-bottom: 8px; padding: 8px 10px; font-size: 13px; background: rgba(255, 210, 122, 0.1); border-left: 2px solid #ffd27a; }
+.cls:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ---------------- town heat, ship menu ---------------- */
+#heat-banner { padding: 6px 10px; font-size: 13px; color: #ffe2b0; background: rgba(160, 60, 20, 0.55); border-left: 3px solid #ff8a3d; }
+#heat-banner b { color: #fff; }
+.ship-menu { display: grid; gap: 12px; }
+.ship-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.ship-card { padding: 14px 16px; background: rgba(255,255,255,0.04); border-left: 2px solid var(--panel-line); display: grid; gap: 8px; align-content: start; }
+.ship-card.fresh { border-left-color: #ffd27a; background: rgba(255, 210, 122, 0.1); }
+.ship-card h3 { margin: 0; font: 600 18px var(--display); }
+.ship-card p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--sand-dim); }
+.ship-card .new { font-size: 12px; color: #ffd27a; }
+.ship-card button { justify-self: start; font-size: 14px; font-weight: 700; padding: 8px 14px; border: 0; color: var(--night); background: var(--ember); clip-path: var(--chamfer); }
+.ship-card button:disabled { background: var(--sand-dim); opacity: 0.5; cursor: default; }
+.mk-heat { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 12px; background: rgba(160, 60, 20, 0.35); border-left: 3px solid #ff8a3d; font-size: 13.5px; }
+.mk-heat button { font-size: 13px; font-weight: 700; padding: 6px 12px; border: 0; color: var(--night); background: #ffb13b; }
+.mk-heat button:disabled { opacity: 0.5; }
+.mk-fence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 12px; background: rgba(255,255,255,0.05); border-left: 3px solid var(--sand-dim); font-size: 13.5px; }
+.mk-fence button { font-size: 13px; font-weight: 700; padding: 6px 12px; border: 0; color: var(--night); background: var(--sand); }

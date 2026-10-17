@@ -13,7 +13,7 @@ const aim = (p, e) => { const dx = e.x - p.x, dy = e.y + 1.1 - (p.y + 1.5), dz =
 const calm = (e) => { e.ai.state = 'routine'; e.ai.sus = 0; e.ai.wait = 60; e.vx = e.vz = 0; };
 const saved = {};
 function setup(cls, xp = 0, adv) {
-  if (xp) saved.T = { xp, advs: adv ? { [cls]: adv } : {} };
+  if (xp) saved.T = { xp, advs: adv ? { [cls]: adv } : {} }; else delete saved.T;
   const g = new Game({ send: () => {}, solo: true, saveProfile: (n, d) => { saved[n] = d; }, loadProfile: (n) => saved[n] || null });
   g.addPlayer('p', { name: 'T', cls });
   const p = g.playerOf('p');
@@ -150,7 +150,7 @@ const L10 = 2800;
   const targets = lineUp(g, p, 3, 25);
   targets.forEach((e, i) => { e.z += (i - 1) * 2.5; });
   g.rebuildSpatial();
-  p.cdk.x = 0;
+  p.cdk = {};
   ab(g, p, 'x');
   run(g, 3);
   const dead = targets.filter((e) => e.dead || e.hp < e.maxHp).length;

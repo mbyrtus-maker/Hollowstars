@@ -1,7 +1,7 @@
 // DOM HUD: vitals, loadout, compass, world markers, detection indicators, prompts,
 // mission tracker, notes, chat, and the job board / merchant modals.
 import * as THREE from 'three';
-import { K, F, MISSIONS, ITEMS, MERCHANTS, PLAYER_COLORS, POWERS, CLASSES, ADVANCED, RANGED, LEVELS, effectiveClass, advancedFor } from '../shared/config.js';
+import { K, F, MISSIONS, ITEMS, MERCHANTS, PLAYER_COLORS, POWERS, CLASSES, ADVANCED, BRANCHES, BRANCH_RESET_COST, SLOTS, RANGED, LEVELS, effectiveClass, advancedFor, branchesFor, abilityPool } from '../shared/config.js';
 import { clamp, wrapAngle, yawTo, dist2 } from '../shared/math.js';
 import { PLANETS, PLANET_ORDER, SHIP } from '../shared/planets.js';
 import { GOODS, GOOD_ORDER, RECIPES, UPGRADES, UPGRADE_ORDER, packCount } from '../shared/economy.js';
@@ -13,7 +13,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 export class HUD {
   constructor() {
     this.el = {};
-    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body', 'num-pk', 'num-cap', 'lv-badge', 'bar-xp', 'career-btn', 'xp-pops']) this.el[id] = $(id);
+    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body', 'num-pk', 'num-cap', 'heat-banner', 'lv-badge', 'bar-xp', 'career-btn', 'xp-pops']) this.el[id] = $(id);
     this.markerPool = [];
     this.bubblePool = [];
     this.detPool = [];
@@ -38,10 +38,11 @@ export class HUD {
     this.el.crosshair.classList.toggle('holstered', !drawn);
   }
 
-  setClass(cls, adv) {
-    const C = effectiveClass(cls, adv);
+  setClass(cls, adv, branch, slots) {
+    const C = effectiveClass(cls, adv, branch, slots);
     this.cls = cls;
     this.adv = adv || null;
+    this.branch = branch || null;
     this.C = C;
     this.el['cls-name'].textContent = C.name;
     this.el['wpn-name'].textContent = C.weaponName;
@@ -52,10 +53,10 @@ export class HUD {
     this.el['lbl-md'].textContent = C.consumable || 'Medpacks';
     this.el['row-focus'].classList.toggle('hidden', !C.focus);
     this.el.wanted.classList.toggle('hidden', !C.wanted);
-    const slots = Object.entries(C.abilities).map(([k, a]) => ({ k, a }));
-    if (C.leap) slots.push({ k: 'leap', a: { name: 'Leap' } });
-    this.el.powers.style.gridTemplateColumns = `repeat(${slots.length}, 1fr)`;
-    this.el.powers.innerHTML = slots.map(({ k, a }) => `<div class="pw" data-k="${k}"><kbd>${k === 'leap' ? '␣' : k.toUpperCase()}</kbd><span>${a.name}</span><b></b><i></i></div>`).join('');
+    const tiles = Object.entries(C.abilities).map(([k, a]) => ({ k, a }));
+    if (C.leap) tiles.push({ k: 'leap', a: { name: 'Leap' } });
+    this.el.powers.style.gridTemplateColumns = `repeat(${tiles.length}, 1fr)`;
+    this.el.powers.innerHTML = tiles.map(({ k, a }) => `<div class="pw" data-k="${k}"><kbd>${k === 'leap' ? '␣' : k.toUpperCase()}</kbd><span>${a.name}</span><b></b><i></i></div>`).join('');
     this.pwEls = [...this.el.powers.querySelectorAll('.pw')];
   }
 
@@ -127,15 +128,15 @@ export class HUD {
     const C = this.C || CLASSES.soldier;
     // level and experience
     if (pv.lv) {
-      const lk = pv.lv + ':' + pv.xp + ':' + pv.adv + ':' + this.cls;
+      const lk = pv.lv + ':' + pv.xp + ':' + pv.adv + ':' + pv.br + ':' + this.cls;
       if (this._lk !== lk) {
         this._lk = lk;
         this.el['lv-badge'].textContent = 'Lv ' + pv.lv;
         this.el['bar-xp'].style.width = (pv.lv >= LEVELS.max ? 100 : clamp(pv.xp / (pv.xpn || 1), 0, 1) * 100) + '%';
         this.el['bar-xp'].parentElement.title = pv.lv >= LEVELS.max ? 'Top level' : `${pv.xp} / ${pv.xpn} XP to level ${pv.lv + 1}`;
-        const ready = pv.lv >= LEVELS.advancedAt && !pv.adv && advancedFor(this.cls).length > 0;
-        this.el['career-btn'].classList.toggle('ready', ready);
-        this.el['career-btn'].title = ready ? 'An advanced class is open (K)' : 'Career (K)';
+        const ready = (pv.lv >= LEVELS.advancedAt && !pv.adv && advancedFor(this.cls).length > 0) || (pv.adv && !pv.br && pv.lv >= LEVELS.branchAt);
+        this.el['career-btn'].classList.toggle('ready', !!ready);
+        this.el['career-btn'].title = ready ? (pv.adv ? 'A branch is open (K)' : 'An advanced class is open (K)') : 'Career (K)';
       }
     }
     for (const e of this.pwEls || []) {
@@ -155,7 +156,9 @@ export class HUD {
     // stealth meter
     const vis = pv.vis;
     const s = this.el.stealth;
-    const label = lp.vehicle ? 'Loud' : vis < 0.45 ? 'Hidden' : vis < 0.9 ? 'Low profile' : vis < 1.3 ? 'Visible' : 'Exposed';
+    const C2 = this.C || CLASSES.soldier;
+    const disguised = Object.entries(C2.abilities).some(([k, a]) => a.id === 'disguise' && pv.ab && pv.ab[k] && pv.ab[k][2] > 0);
+    const label = lp.vehicle ? 'Loud' : disguised ? (vis < 0.2 ? 'Disguised' : 'Disguised — too close') : vis < 0.45 ? 'Hidden' : vis < 0.9 ? 'Low profile' : vis < 1.3 ? 'Visible' : 'Exposed';
     this.el['vis-label'].textContent = label;
     s.classList.toggle('hidden-s', vis < 0.45 && !lp.vehicle);
     s.classList.toggle('exposed-s', vis >= 1.3 || !!lp.vehicle);
@@ -193,6 +196,13 @@ export class HUD {
   updateGlobal(g, myId) {
     this.el['alarm-banner'].classList.toggle('hidden', !g.al);
     this.el['cam-banner'].classList.toggle('hidden', !!g.cam);
+    const hk = (g.ht || 0) + ':' + g.town;
+    if (hk !== this._hk) {
+      this._hk = hk;
+      const h = g.ht || 0;
+      this.el['heat-banner'].classList.toggle('hidden', !h);
+      if (h) this.el['heat-banner'].innerHTML = `<b>Heat in ${esc(g.town || 'town')}: ${h}</b> — ${h >= 60 ? 'the militia is hunting you' : h >= 20 ? "the owner's friends are after you" : 'prices are up'}. Lie low, or pay the fine at the exchange.`;
+    }
     // mission tracker
     const key = JSON.stringify([g.m, g.pl]);
     if (key !== this.lastMissionKey) {
@@ -211,7 +221,7 @@ export class HUD {
     const pk = JSON.stringify(g.party);
     if (pk !== this.lastPartyKey) {
       this.lastPartyKey = pk;
-      this.el.party.innerHTML = g.party.map(([id, name, color, hp, down, cr, cls, aboard, lv, adv]) => `<div class="pm ${down ? 'down' : ''}"><i style="background:${PLAYER_COLORS[color]}"></i><span>${lv ? `<span class="lv" title="${esc(effectiveClass(cls, adv).name)}">${lv}</span>` : ''}${esc(name)}${id === myId ? ' (you)' : ''}${aboard ? ' <em class="aboard">aboard</em>' : ''}</span><div class="b"><div style="width:${down ? 100 : clamp(hp, 0, 100)}%"></div></div></div>`).join('');
+      this.el.party.innerHTML = g.party.map(([id, name, color, hp, down, cr, cls, aboard, lv, adv, br]) => `<div class="pm ${down ? 'down' : ''}"><i style="background:${PLAYER_COLORS[color]}"></i><span>${lv ? `<span class="lv" title="${esc(effectiveClass(cls, adv, br).name)}">${lv}</span>` : ''}${esc(name)}${id === myId ? ' (you)' : ''}${aboard ? ' <em class="aboard">aboard</em>' : ''}</span><div class="b"><div style="width:${down ? 100 : clamp(hp, 0, 100)}%"></div></div></div>`).join('');
     }
   }
 
@@ -464,12 +474,14 @@ export class HUD {
     const render = (force) => {
       const g = getG(), pv = getPv();
       if (!g || !g.mk || !pv) return;
-      const k = JSON.stringify([g.mk, pv.pk, pv.cr, pv.cap]);
+      const k = JSON.stringify([g.mk, pv.pk, pv.cr, pv.cap, g.ht, pv.fq]);
       if (!force && k === key) return;
       key = k;
       const pk = pv.pk || {}, used = packCount(pk), room = pv.cap - used;
       const ship = g.ship != null && g.ship < 9000 ? (g.ship < 60 ? 'a trader landed just now' : `last trader landed ${Math.round(g.ship / 60)} min ago`) : 'no traders yet today';
-      const row = ([id, stock, buy, sell, trend]) => {
+      const heat = g.ht || 0, bm = 1 + heat / 200, sm = 1 - heat / 300;
+      const row = ([id, stock, buy0, sell0, trend]) => {
+        const buy = Math.round(buy0 * bm), sell = Math.round(sell0 * sm);
         const have = pk[id] || 0;
         const arrow = trend > 0 ? '<span class="up" title="Price rising">▲</span>' : trend < 0 ? '<span class="dn" title="Price falling">▼</span>' : '';
         return `<tr><td class="good"><b>${esc(GOODS[id].name)}</b><small>${esc(GOODS[id].desc)}</small></td>
@@ -479,9 +491,13 @@ export class HUD {
       const raw = g.mk.rows.filter((r) => GOODS[r[0]].kind === 'raw'), parts = g.mk.rows.filter((r) => GOODS[r[0]].kind === 'part');
       this.el['modal-body'].innerHTML = `<h2>${esc(M.title)}</h2><p class="sub">${esc(M.name)} buys and sells for ${esc(g.mk.town)}. Prices rise when the town runs short and fall when it's flooded.</p>
         <div class="mk-head"><span>You have <b>${pv.cr.toLocaleString()}cr</b></span><span>Pack <b>${used}/${pv.cap}</b></span><span>${esc(ship)}</span></div>
+        ${heat ? `<div class="mk-heat"><span>${esc(g.mk.town)} has heat ${heat} on your crew: buying costs ${Math.round((bm - 1) * 100)}% more and selling pays ${Math.round((1 - sm) * 100)}% less.</span><button data-fine ${pv.cr >= heat * 15 ? '' : 'disabled'}>Pay the fine (${(heat * 15).toLocaleString()}cr)</button></div>` : ''}
+        ${pv.fq ? `<div class="mk-fence"><span>The back room will take the stolen speeder parked outside. No questions.</span><button data-fence>Sell it to the fence (${pv.fq}cr)</button></div>` : ''}
         <div class="mk-wrap"><table class="mkt"><thead><tr><th>Goods</th><th class="n">In town</th><th class="n">Buy</th><th class="n">Sell</th><th class="n">You carry</th><th></th></tr></thead>
         <tbody><tr class="sec"><td colspan="6">Raw goods</td></tr>${raw.map(row).join('')}<tr class="sec"><td colspan="6">Parts</td></tr>${parts.map(row).join('')}</tbody></table></div>`;
       this.el['modal-body'].querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => { send({ t: 'trade', g: b.dataset.t, n: +b.dataset.n }); setTimeout(() => render(true), 200); }));
+      this.el['modal-body'].querySelectorAll('[data-fine]').forEach((b) => b.addEventListener('click', () => { send({ t: 'fine' }); setTimeout(() => render(true), 250); }));
+      this.el['modal-body'].querySelectorAll('[data-fence]').forEach((b) => b.addEventListener('click', () => { send({ t: 'fence' }); setTimeout(() => render(true), 250); }));
     };
     this.openModal('', onClose);
     render(true);
@@ -543,42 +559,136 @@ export class HUD {
     while (box.children.length > 4) box.firstElementChild.remove();
   }
 
-  openCareer(getPv, cls, send, onClose) {
+  // Career: level, the advanced class (a one-way choice), its two branches, and which
+  // unlocked abilities sit on Q, F, X and Z
+  openCareer(getPv, getLp, send, onClose) {
     let key = '';
-    const abList = (abs) => Object.entries(abs).map(([k, a]) => `<span><kbd>${k.toUpperCase()}</kbd> ${esc(a.name)}</span>`).join('');
+    let confirm = null; // { kind: 'adv' | 'reset', id }
+    const abList = (abs) => abs.map((a) => `<span>${esc(a.name)}${a.lv > 1 ? ` <em>Lv ${a.lv}</em>` : ''}</span>`).join('');
     const render = (force) => {
-      const pv = getPv();
-      if (!pv) return;
-      const k = JSON.stringify([pv.lv, pv.xp, pv.adv, cls]);
+      const pv = getPv(), lp = getLp();
+      if (!pv || !lp) return;
+      const k = JSON.stringify([pv.lv, pv.xp, pv.adv, pv.br, pv.cr >= BRANCH_RESET_COST, lp.cls, lp.slots, confirm]);
       if (!force && k === key) return;
       key = k;
-      const B = CLASSES[cls];
-      const open = pv.lv >= LEVELS.advancedAt;
+      const cls = lp.cls, B = CLASSES[cls];
       const top = pv.lv >= LEVELS.max;
-      const toGo = open ? '' : `<span>Advanced classes open at level ${LEVELS.advancedAt}.</span>`;
-      const base = `<div class="adv-card ${!pv.adv ? 'on' : ''}"><h3>${esc(B.name)}</h3><div class="role">${esc(B.role)}</div><p>${esc(B.desc || '')}</p><div class="ab">${abList(B.abilities)}</div>
-        ${pv.adv ? `<button class="ghosty" data-adv="">Go back to ${esc(B.name)}</button>` : '<div class="role">Your class now</div>'}</div>`;
-      const advs = advancedFor(cls).map((id) => {
-        const A = ADVANCED[id];
-        const E = effectiveClass(cls, id);
-        const on = pv.adv === id;
-        const perks = [];
-        if (A.hp) perks.push(`+${A.hp} health`);
-        if (A.weaponName) perks.push(esc(A.weaponName));
-        return `<div class="adv-card ${on ? 'on' : ''}"><h3>${esc(A.name)}</h3><div class="role">${esc(A.role)}${perks.length ? ' — ' + perks.join(', ') : ''}</div><p>${esc(A.desc)}</p><div class="ab">${abList(E.abilities)}</div>
-          ${on ? '<div class="role">Your class now</div>' : `<button data-adv="${id}" ${open ? '' : 'disabled'}>${open ? `Become a ${esc(A.name)}` : `Opens at level ${LEVELS.advancedAt}`}</button>`}</div>`;
-      }).join('');
-      this.el['modal-body'].innerHTML = `<div class="career"><h2>Career</h2>
-        <div class="lvline"><b>Level ${pv.lv}</b><span>${top ? 'Top level reached' : `${pv.xp.toLocaleString()} / ${pv.xpn.toLocaleString()} XP to level ${pv.lv + 1}`}</span>${toGo}</div>
+      let html = `<div class="career"><h2>Career</h2>
+        <div class="lvline"><b>Level ${pv.lv}</b><span>${top ? 'Top level reached' : `${pv.xp.toLocaleString()} / ${pv.xpn.toLocaleString()} XP to level ${pv.lv + 1}`}</span></div>
         <div class="bigxp"><div style="width:${top ? 100 : clamp(pv.xp / (pv.xpn || 1), 0, 1) * 100}%"></div></div>
-        <p class="sub">Every level adds ${LEVELS.hpPer} health and shortens cooldowns a little. Earn experience from jobs, takedowns (more if nobody saw), slicing, sabotage, revives, gathering and crafting. Your advanced class is kept per class and can be changed any time you're not being hunted.</p>
-        <div class="adv-grid">${base}${advs}</div></div>`;
-      this.el['modal-body'].querySelectorAll('[data-adv]').forEach((b) => b.addEventListener('click', () => { send({ t: 'adv', id: b.dataset.adv || null }); setTimeout(() => render(true), 250); }));
+        <p class="sub">Every level adds ${LEVELS.hpPer} health and shortens cooldowns a little. Earn experience from jobs, takedowns (more if nobody saw), slicing, sabotage, revives, gathering and crafting.</p>`;
+      // ---- class
+      html += '<h3 class="sec">Class</h3><div class="adv-grid">';
+      if (!pv.adv) {
+        const open = pv.lv >= LEVELS.advancedAt;
+        html += `<div class="adv-card on"><h3>${esc(B.name)}</h3><div class="role">${esc(B.role)}</div><p>${esc(B.desc || '')}</p><div class="ab">${abList(abilityPool(cls))}</div><div class="role">Your class now. Until you take an advanced class you can switch classes freely from the start screen.</div></div>`;
+        for (const id of advancedFor(cls)) {
+          const A = ADVANCED[id];
+          const perks = [];
+          if (A.hp) perks.push(`+${A.hp} health`);
+          if (A.weaponName) perks.push(esc(A.weaponName));
+          const asking = confirm && confirm.kind === 'adv' && confirm.id === id;
+          html += `<div class="adv-card"><h3>${esc(A.name)}</h3><div class="role">${esc(A.role)}${perks.length ? ' — ' + perks.join(', ') : ''}</div><p>${esc(A.desc)}</p><div class="ab">${abList(Object.values(A.abilities).map((a) => ({ ...a, lv: LEVELS.advancedAt })))}</div>
+            ${asking ? `<div class="warn-lock" role="alert"><b>This is permanent.</b> Becoming a ${esc(A.name)} locks this character in as a ${esc(B.name)}–${esc(A.name)} for good. You won't be able to switch classes again, and you can't go back to plain ${esc(B.name)}.</div>
+              <div class="btn-row"><button data-adv="${id}">Lock in as ${esc(A.name)}</button><button class="ghosty" data-cancel>Cancel</button></div>`
+            : `<button data-ask-adv="${id}" ${open ? '' : 'disabled'}>${open ? `Become a ${esc(A.name)}…` : `Opens at level ${LEVELS.advancedAt}`}</button>`}</div>`;
+        }
+      } else {
+        const A = ADVANCED[pv.adv];
+        html += `<div class="adv-card on"><h3>${esc(A.name)}</h3><div class="role">${esc(B.name)} — locked in for this character</div><p>${esc(A.desc)}</p></div>`;
+      }
+      html += '</div>';
+      // ---- branches
+      if (pv.adv) {
+        const A = ADVANCED[pv.adv];
+        const open = pv.lv >= LEVELS.branchAt;
+        html += `<h3 class="sec">Path</h3><p class="sub">At level ${LEVELS.branchAt} a ${esc(A.name)} takes one of two paths, each with its own perk, look and two abilities. You can reset back to ${esc(A.name)} for ${BRANCH_RESET_COST.toLocaleString()}cr and take the other one.</p><div class="adv-grid">`;
+        for (const id of branchesFor(pv.adv)) {
+          const R = BRANCHES[id];
+          const on = pv.br === id;
+          let foot;
+          if (on) {
+            const asking = confirm && confirm.kind === 'reset';
+            foot = asking ? `<div class="warn-lock" role="alert">Reset to ${esc(A.name)} for <b>${BRANCH_RESET_COST.toLocaleString()}cr</b>? You'll lose ${esc(R.name)}'s abilities until you pick a path again.</div><div class="btn-row"><button data-reset ${pv.cr >= BRANCH_RESET_COST ? '' : 'disabled'}>${pv.cr >= BRANCH_RESET_COST ? 'Pay and reset' : `You have ${pv.cr.toLocaleString()}cr`}</button><button class="ghosty" data-cancel>Cancel</button></div>`
+              : `<div class="role">Your path now</div><button class="ghosty" data-ask-reset>Reset to ${esc(A.name)}…</button>`;
+          } else if (pv.br) foot = '<div class="role">Reset your path to take this one</div>';
+          else foot = `<button data-branch="${id}" ${open ? '' : 'disabled'}>${open ? `Become a ${esc(R.name)}` : `Opens at level ${LEVELS.branchAt}`}</button>`;
+          html += `<div class="adv-card ${on ? 'on' : ''}"><h3>${esc(R.name)}</h3><div class="role">${esc(R.role)}${R.hp ? ` — +${R.hp} health` : ''}</div><p>${esc(R.desc)}</p><div class="ab">${abList(R.abilities)}</div>${foot}</div>`;
+        }
+        html += '</div>';
+      }
+      // ---- loadout
+      const pool = abilityPool(cls, pv.adv, pv.br);
+      const unlocked = pool.filter((a) => a.lv <= pv.lv);
+      const slots = lp.slots || effectiveClass(cls, pv.adv, pv.br).abilities && Object.fromEntries(Object.entries(effectiveClass(cls, pv.adv, pv.br).abilities).map(([k2, a]) => [k2, a.id]));
+      const keys = pv.adv ? SLOTS : SLOTS.slice(0, 3);
+      html += `<h3 class="sec">Abilities</h3><p class="sub">Choose what sits on each key.${pv.adv ? '' : ` A fourth key, Z, opens with your advanced class.`}</p><div class="loadout">`;
+      for (const k2 of keys) {
+        html += `<label><kbd>${k2.toUpperCase()}</kbd><select data-slot="${k2}"><option value="">Empty</option>${unlocked.map((a) => `<option value="${a.id}" ${slots && slots[k2] === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>`;
+      }
+      const later = pool.filter((a) => a.lv > pv.lv);
+      html += '</div>';
+      if (later.length) html += `<p class="sub">Still to unlock: ${later.map((a) => `${esc(a.name)} (level ${a.lv})`).join(', ')}.</p>`;
+      html += '</div>';
+      const body = this.el['modal-body'];
+      body.innerHTML = html;
+      body.querySelectorAll('[data-ask-adv]').forEach((b) => b.addEventListener('click', () => { confirm = { kind: 'adv', id: b.dataset.askAdv }; render(true); }));
+      body.querySelectorAll('[data-adv]').forEach((b) => b.addEventListener('click', () => { confirm = null; send({ t: 'adv', id: b.dataset.adv }); setTimeout(() => render(true), 250); }));
+      body.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', () => { confirm = null; render(true); }));
+      body.querySelectorAll('[data-branch]').forEach((b) => b.addEventListener('click', () => { send({ t: 'branch', id: b.dataset.branch }); setTimeout(() => render(true), 250); }));
+      body.querySelectorAll('[data-ask-reset]').forEach((b) => b.addEventListener('click', () => { confirm = { kind: 'reset' }; render(true); }));
+      body.querySelectorAll('[data-reset]').forEach((b) => b.addEventListener('click', () => { confirm = null; send({ t: 'branch', reset: 1 }); setTimeout(() => render(true), 250); }));
+      body.querySelectorAll('[data-slot]').forEach((sel) => sel.addEventListener('change', () => {
+        const next = { ...(slots || {}) };
+        const k2 = sel.dataset.slot, id = sel.value || null;
+        // picking an ability that's already on another key swaps the two
+        const other = SLOTS.find((o) => o !== k2 && next[o] === id && id);
+        if (other) next[other] = next[k2] || null;
+        next[k2] = id;
+        send({ t: 'slots', s: next });
+        setTimeout(() => render(true), 250);
+      }));
     };
     this.openModal('', onClose);
     render(true);
     clearInterval(this._cvT);
-    this._cvT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.career')) { clearInterval(this._cvT); return; } render(); }, 400);
+    this._cvT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.career')) { clearInterval(this._cvT); return; } if (document.activeElement && document.activeElement.tagName === 'SELECT') return; render(); }, 400);
+  }
+
+  // The Wayfarer's ramp: restock, call your speeder, or go aboard
+  openShipMenu(getPv, send, onClose) {
+    let key = '';
+    const render = (force) => {
+      const pv = getPv();
+      if (!pv) return;
+      if (!pv.rq) { this.closeModal(); return; } // walked away from the ramp
+      const k = JSON.stringify([pv.rq, pv.scd, pv.sp, pv.fs, pv.cr]);
+      if (!force && k === key) return;
+      key = k;
+      const [gr, md, cost, other] = pv.rq;
+      const C = this.C || CLASSES.soldier;
+      const need = [gr && `${gr} ${C.throwable ? C.throwable.toLowerCase() : 'thermal charges'}`, md && `${md} ${C.consumable ? C.consumable.toLowerCase() : 'medpacks'}`, other && 'mines and knives'].filter(Boolean);
+      const full = !gr && !md && !other;
+      this.el['modal-body'].innerHTML = `<div class="ship-menu"><h2>${esc(SHIP.name)}</h2><p class="sub">The ${esc(SHIP.model)} is your crew's home base. Everything here is yours.</p>
+        <div class="ship-grid">
+          <div class="ship-card ${pv.fs ? 'fresh' : ''}"><h3>Call your speeder</h3>
+            ${pv.fs ? '<div class="new">New: your own speeder bike rides in the hold.</div>' : ''}
+            <p>${pv.scd ? `Your last one was wrecked. The crew chief needs ${pv.scd}s to patch up another.` : pv.sp ? "It's already out. Calling it again brings it back to the ramp." : 'Rolls down the ramp in your colours, with your speeder tune fitted. Town speeders belong to townsfolk — taking one is theft.'}</p>
+            <button data-call ${pv.scd ? 'disabled' : ''}>${pv.sp ? 'Bring it back here' : 'Call the speeder'}</button></div>
+          <div class="ship-card"><h3>Restock</h3>
+            <p>${full ? "You're fully stocked." : `Top up ${need.join(', ')} from the ship's lockers.`} ${cost ? `Charges and meds are ${cost}cr in all; mines and knives are free.` : ''}</p>
+            <button data-refill ${full || pv.cr < cost ? 'disabled' : ''}>${full ? 'Fully stocked' : cost ? `Restock (${cost}cr)` : 'Restock'}</button></div>
+          <div class="ship-card"><h3>Go aboard</h3><p>Board to fly to another world. The whole crew has to be aboard before you can leave.</p><button data-board>Board the ${esc(SHIP.name)}</button></div>
+        </div></div>`;
+      const b = this.el['modal-body'];
+      b.querySelector('[data-call]').addEventListener('click', () => { send({ t: 'callspeeder' }); this.closeModal(); });
+      b.querySelector('[data-refill]').addEventListener('click', () => { send({ t: 'refill' }); setTimeout(() => render(true), 250); });
+      b.querySelector('[data-board]').addEventListener('click', () => { send({ t: 'boardship' }); this.closeModal(); });
+    };
+    this.openModal('', onClose);
+    render(true);
+    clearInterval(this._shT);
+    this._shT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.ship-menu')) { clearInterval(this._shT); return; } render(); }, 400);
   }
 
   openModal(html, onClose) {

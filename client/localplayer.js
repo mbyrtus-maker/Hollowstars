@@ -36,10 +36,12 @@ export class LocalPlayer {
     this.vehicleState = null;
   }
 
-  setClass(cls, adv) {
+  setClass(cls, adv, branch, slots) {
     this.cls = CLASSES[cls] ? cls : DEFAULT_CLASS;
     this.adv = adv || null;
-    this.C = effectiveClass(this.cls, this.adv);
+    this.branch = branch || null;
+    this.slots = slots || null;
+    this.C = effectiveClass(this.cls, this.adv, this.branch, this.slots);
     this.weapon = this.C.weapon;
     this.ranged = RANGED.includes(this.weapon);
   }
@@ -171,7 +173,7 @@ export class LocalPlayer {
         act.melee = true;
       }
       if (input.hit('KeyG')) act.grenade = true;
-      for (const [code, k] of [['KeyQ', 'q'], ['KeyF', 'f'], ['KeyX', 'x']]) {
+      for (const [code, k] of [['KeyQ', 'q'], ['KeyF', 'f'], ['KeyX', 'x'], ['KeyZ', 'z']]) {
         if (!input.hit(code) || !this.C.abilities[k]) continue;
         act.ab = k;
         if ((this.C.abilities[k].id === 'execute' || this.C.abilities[k].id === 'fan') && !this.drawn) { this.drawn = true; act.draw = 'draw'; }

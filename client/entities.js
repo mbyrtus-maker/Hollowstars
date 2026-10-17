@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { K, F, PLAYER_COLORS, BLADE_COLORS } from '../shared/config.js';
 import { lerp, lerpAngle, clamp, angleDiff } from '../shared/math.js';
-import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup, makeLandspeeder, makeHauler, makeMine } from './render/models.js';
+import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup, makeLandspeeder, makeHauler, makeMine, makeTurret, makeCloud } from './render/models.js';
 import { Humanoid } from './render/humanoid.js';
 
 const HUMAN = { [K.PLAYER]: 'player', [K.LANCER]: 'lancer', [K.OFFICER]: 'officer', [K.CIVILIAN]: 'civilian', [K.MERCHANT]: 'merchant', [K.INFORMANT]: 'informant', [K.PRISONER]: 'prisoner', [K.BARTENDER]: 'bartender' };
@@ -19,11 +19,11 @@ export class Entities {
   }
 
   setRoster(party) {
-    for (const [id, name, color, hp, down, cr, cls, aboard, lv, adv] of party) {
+    for (const [id, name, color, hp, down, cr, cls, aboard, lv, adv, branch] of party) {
       const prev = this.roster.get(id);
-      this.roster.set(id, { name, color, hp, down, cls, lv, adv: adv || null });
+      this.roster.set(id, { name, color, hp, down, cls, lv, adv: adv || null, branch: branch || null });
       // a crewmate who changed class gets a new body on the next snapshot
-      if (prev && (prev.cls !== cls || (prev.adv || null) !== (adv || null))) { const v = this.views.get(id); if (v) this.destroy(v); }
+      if (prev && (prev.cls !== cls || (prev.adv || null) !== (adv || null) || (prev.branch || null) !== (branch || null))) { const v = this.views.get(id); if (v) this.destroy(v); }
     }
   }
 
@@ -35,7 +35,7 @@ export class Entities {
       let v = this.views.get(id);
       if (!v) {
         if (kind === K.PLAYER && !this.roster.has(id) && id !== this.myId) continue;
-        v = this.create(id, kind, a1, a2);
+        v = this.create(id, kind, a1, a2, flags);
         if (!v) continue;
         this.views.set(id, v);
       }
@@ -46,24 +46,34 @@ export class Entities {
     for (const [id, v] of this.views) if (!seen.has(id)) this.destroy(v);
   }
 
-  create(id, kind, a1, a2) {
+  create(id, kind, a1, a2, flags = 0) {
     let model, human = null, critter = null, riders = null;
     if (HUMAN[kind]) {
       const opts = { variant: kind === K.PLAYER ? id : a1 || id, role: kind === K.CIVILIAN ? a2 | 0 : 0 };
+      // town militia: armed townsfolk, not Concordance armour
+      const militia = kind === K.LANCER && (flags & F.MILITIA);
+      if (militia) { opts.role = 3; opts.variant = id * 7 + 3; }
       if (kind === K.PLAYER) {
         const r = this.roster.get(id);
         const c = r ? r.color : 0;
-        opts.color = PLAYER_COLORS[c]; opts.bladeColor = BLADE_COLORS[c]; opts.colorIdx = c; opts.cls = r ? r.cls : 'soldier'; opts.adv = r ? r.adv : null;
+        opts.color = PLAYER_COLORS[c]; opts.bladeColor = BLADE_COLORS[c]; opts.colorIdx = c; opts.cls = r ? r.cls : 'soldier'; opts.adv = r ? r.adv : null; opts.branch = r ? r.branch : null;
       }
-      human = new Humanoid(HUMAN[kind], opts);
+      human = new Humanoid(militia ? 'civilian' : HUMAN[kind], opts);
       model = human.root;
     } else if (kind === K.CRITTER) { critter = new Critter(a1 || id); model = critter.root; }
-    else if (kind === K.SPEEDER) model = makeSpeeder();
+    else if (kind === K.SPEEDER) {
+      // a2 carries the model and paint above the health bits: town bikes, landspeeders, haulers, or a crew bike in its owner's colour
+      const look = a2 >> 7, mk = look & 3, pi = look >> 2;
+      const paint = pi >= 8 ? new THREE.Color(PLAYER_COLORS[pi - 8]).getHex() : PAINT[pi % PAINT.length];
+      model = mk === 1 ? makeLandspeeder(paint) : mk === 2 ? makeHauler(paint, id) : (pi >= 8 ? makeSpeeder(paint, 0x2a2c32) : makeSpeeder(paint, PAINT[(pi + 3) % PAINT.length]));
+    }
     else if (kind === K.CAMERA) model = makeSecCam();
     else if (kind === K.GRENADE) model = makeGrenade();
     else if (kind === K.PICKUP) model = makePickup(a1);
     else if (kind === K.TRAFFIC) ({ model, riders } = makeTraffic(a1, a2));
     else if (kind === K.MINE) model = makeMine(PLAYER_COLORS[a1 | 0]);
+    else if (kind === K.TURRET) model = makeTurret(PLAYER_COLORS[a1 | 0]);
+    else if (kind === K.CLOUD) model = makeCloud(a1 === 1, a2 || 5);
     else if (kind === K.DECOY) {
       // a flickering hologram of the Agent who projected it
       const r = this.roster.get(a2) || {};
@@ -140,6 +150,8 @@ export class Entities {
       else if (v.kind === K.SPEEDER) this.animateSpeeder(v, dt, t);
       else if (v.kind === K.TRAFFIC) this.animateTraffic(v, fl, dt, t);
       else if (v.kind === K.CAMERA) this.animateCam(v, fl, t);
+      else if (v.kind === K.TURRET) { m.rotation.y = 0; m.userData.head.rotation.y = v.yaw; m.userData.eye.visible = Math.sin(t * 9) > -0.6; }
+      else if (v.kind === K.CLOUD) { m.rotation.y = 0; m.userData.ring.material.opacity = 0.3 + Math.sin(t * 3) * 0.15; for (const p of m.userData.puffs) { p.position.y = 0.6 + Math.sin(t * 0.8 + p.userData.seed) * 0.4 + p.userData.seed * 0.08; p.rotation.y = t * 0.2 + p.userData.seed; } }
       else if (v.kind === K.MINE) { m.userData.light.visible = (fl & F.ALERT) ? Math.sin(t * 6) > 0 : Math.sin(t * 20) > 0.6; }
       else if (v.kind === K.GRENADE) { m.userData.light.visible = Math.sin(t * 22) > 0; m.rotation.x += dt * 9; }
       else if (v.kind === K.PICKUP) { m.position.y = v.y + 0.25 + Math.sin(t * 3) * 0.08; m.rotation.y = t * 1.5; }
@@ -263,7 +275,7 @@ export class Entities {
   rayEntities(o, d, maxT, skipId) {
     let best = maxT, hit = null;
     for (const v of this.views.values()) {
-      if (v.id === skipId || v.kind === K.PICKUP || v.kind === K.GRENADE || v.kind === K.MINE || v.kind === K.DECOY || (v.flags & F.DEAD)) continue;
+      if (v.id === skipId || v.kind === K.PICKUP || v.kind === K.GRENADE || v.kind === K.MINE || v.kind === K.DECOY || v.kind === K.TURRET || v.kind === K.CLOUD || (v.flags & F.DEAD)) continue;
       const r = v.kind === K.SPEEDER ? 1.2 : v.kind === K.TRAFFIC ? 1.3 : v.kind === K.CRITTER ? 0.6 : 0.45;
       const y0 = v.y, y1 = v.y + (v.kind === K.CAMERA ? 0.4 : v.kind === K.CRITTER ? 1 : (v.flags & F.CROUCH) ? 1.1 : 1.8);
       // closest approach of ray to vertical axis

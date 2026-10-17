@@ -59,6 +59,7 @@ function fly(g, p, to) {
   const r = g.world.pois.ship;
   place(g, p, r.x, r.z + 0.6); face(p, r.x, r.z - 3);
   const c = use(g, p);
+  g.handle('p1', { t: 'boardship' });
   run(g, 0.1);
   check(p.aboard, `boarded the Wayfarer via "${c && c.label}"`);
   g.handle('p1', { t: 'travel', to });
@@ -75,7 +76,9 @@ function fly(g, p, to) {
   const r = g.world.pois.ship;
   place(g, p, r.x, r.z + 0.6); face(p, r.x, r.z - 3);
   const c = use(g, p); run(g, 0.1);
-  check(c && c.id === 'ship' && p.aboard, 'ship: the ramp offers boarding');
+  check(c && c.id === 'ship' && sent.some((m) => m.t === 'ui' && m.ui === 'ship'), 'ship: the ramp opens the ship menu');
+  g.handle('p1', { t: 'boardship' }); run(g, 0.1);
+  check(p.aboard, 'ship: and the menu boards the ship');
   const guardsSee = [...g.ents.values()].filter((e) => e.kind === K.LANCER).length > 0;
   check(guardsSee, 'ship: Dusk garrison is populated');
   g.handle('p1', { t: 'travel', to: 'duskvaro' });
@@ -84,12 +87,12 @@ function fly(g, p, to) {
   check(!p.aboard, 'ship: disembarking puts you back on the ramp');
   g.addPlayer('p2', { name: 'Second' });
   const q = g.playerOf('p2');
-  use(g, p); run(g, 0.1);
+  use(g, p); g.handle('p1', { t: 'boardship' }); run(g, 0.1);
   g.handle('p1', { t: 'travel', to: 'thessaly' });
   check(!g.travel, 'ship: launch waits for the whole crew to be aboard');
   q.tpSeq++; q.x = r.x; q.z = r.z + 0.5; q.y = p.y; q.yaw = 0;
   g.rebuildSpatial();
-  g.handle('p2', { t: 'use', id: 'ship', down: true }); run(g, 0.1);
+  g.handle('p2', { t: 'use', id: 'ship', down: true }); g.handle('p2', { t: 'boardship' }); run(g, 0.1);
   g.handle('p1', { t: 'travel', to: 'thessaly' });
   check(!!g.travel, 'ship: launches once all four... er, both crew are aboard');
   run(g, 8);
