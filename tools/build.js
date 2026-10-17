@@ -25,6 +25,12 @@ const result = await build({
 });
 fs.copyFileSync(path.join(ROOT, 'client/index.html'), path.join(DIST, 'index.html'));
 fs.copyFileSync(path.join(ROOT, 'client/style.css'), path.join(DIST, 'style.css'));
+// 3D models (CC0, see client/assets/CREDITS.md) sit next to the page in every build
+function copyAssets(to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const f of fs.readdirSync(path.join(ROOT, 'client/assets'))) fs.copyFileSync(path.join(ROOT, 'client/assets', f), path.join(to, f));
+}
+copyAssets(path.join(DIST, 'assets'));
 const kb = (fs.statSync(path.join(DIST, 'game.js')).size / 1024).toFixed(0);
 console.log(`Built dist/game.js (${kb} KB)`);
 
@@ -39,6 +45,7 @@ if (process.argv.includes('--single')) {
   // GitHub Pages ("Deploy from a branch", root) serves this file as the game
   const pagesNote = '<!-- Built by tools/build.js from client/ — edit the sources, not this file. -->\n';
   fs.writeFileSync(path.join(ROOT, 'index.html'), html.replace(/^(<!doctype html>\s*)/i, (m) => m + pagesNote));
+  copyAssets(path.join(ROOT, 'assets'));
   console.log('Built index.html (GitHub Pages)');
   // Fragment for hosts that supply their own document skeleton (e.g. a published Claude artifact)
   const frag = html

@@ -248,13 +248,20 @@ This ties all the systems together: missions weaken the regime, ownership create
    - Real authentication.
    - Server-side movement replay for anti-cheat once the game opens beyond co-op friends.
    - Rate limits are already in.
-7. **Content pipeline.** Keep procedural low-poly geometry as the baseline look, with optional glTF model swaps for hero assets (ships, characters) once a visual style is locked.
+7. **Content pipeline (started).**
+   - Characters, weapons and props now come from Quaternius's CC0 packs, slimmed by `tools/assets/build_assets.py` into six .glb files (about 11 MB) that load next to the page.
+   - Every pack character is driven through the game's own rig, so class, advanced-class and branch looks keep working unchanged, and the procedural models remain the fallback.
+   - Set dressing is authored in `shared/dressing.js` and placed only where it can't block a patrol, worker, traffic route or point of interest.
+   - Next steps:
+     - Swap the procedural Wayfarer, speeders and buildings for pack or commissioned models once a style is locked.
+     - Add per-planet colonist and droid variety.
+     - Stream assets per planet instead of loading everything up front.
 
 ## Roadmap
 
 | Phase | Focus | Highlights |
 | --- | --- | --- |
-| 0 (this build) | Vertical slice | 4-player co-op (peer-to-peer or dedicated server), six classes with levels and advanced classes, three planets and the crew's ship, stealth, blasters, blade, Current, speeders, 5 missions (2 off-world), merchants, procedural PBR textures |
+| 0 (this build) | Vertical slice | 4-player co-op (peer-to-peer or dedicated server), six classes with levels and advanced classes, three planets and the crew's ship, stealth, blasters, blade, Current, speeders, 5 missions (2 off-world), merchants, procedural PBR textures, CC0 pack characters, guns and set dressing |
 | 1 | Depth on foot | Skill trees, more weapons, disguises and body dragging, squad AI, procedural missions, more of each planet |
 | 2 | Flight | Fly the Wayfarer yourself: atmospheric flight, fighters and dropships, seamless climb to orbit, space dogfights |
 | 3 | Capital ships | Subsystem combat, hangar landings, boarding interiors, frigate capture |

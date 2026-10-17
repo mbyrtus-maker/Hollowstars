@@ -15,6 +15,7 @@ import { LocalPlayer, ViewModel } from './localplayer.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { Humanoid } from './render/humanoid.js';
+import { Assets } from './render/assets.js';
 import { Audio } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +31,7 @@ const S = {
   planet: null, travel: new Travel(),
 };
 window.__hs = S; // handy for debugging and automated tests
+S.assets = Assets;
 S.util = { Humanoid, ground: (x, z) => groundAt(S.world, x, z, terrainHeight(x, z) + 1.2) };
 
 // ------------------------------------------------------------------ settings
@@ -124,6 +126,11 @@ async function start() {
   $('menu').classList.add('hidden');
   $('loading').classList.remove('hidden');
   await new Promise((r) => setTimeout(r, 30));
+  // models load in the background from page open; wait for them (but never forever)
+  if (!Assets.ready && !Assets.failed) {
+    $('load-text').textContent = 'Unpacking the crew, the guns and the colony…';
+    await Promise.race([Assets.load(), new Promise((r) => setTimeout(r, 25000))]);
+  }
   try {
     const relay = $('m-relay').value.trim();
     settings.relay = relay; saveSettings();
@@ -186,6 +193,7 @@ function ensureWorld(planet) {
   S.fx.setRaycaster((x, y, z, dx, dy, dz) => raycast(S.world, x, y, z, dx, dy, dz, 1.5));
   S.ents = new Entities(S.scene.scene, S.fx, S.audio);
   S.ents.hardRegion = S.world.regions.garrison;
+  S.ents.planet = S.planet;
 }
 
 // The ship has landed somewhere else: rebuild the world, the scene and everything tied to it
@@ -198,6 +206,7 @@ function switchWorld(planet, quiet) {
   S.fx.setRaycaster((x, y, z, dx, dy, dz) => raycast(S.world, x, y, z, dx, dy, dz, 1.5));
   S.ents.clear();
   S.ents.hardRegion = S.world.regions.garrison;
+  S.ents.planet = S.planet;
   S.boltOwners.clear();
   if (S.lp) { S.lp.world = S.world; S.lp.enterVehicle(0); }
   S.audio.alarm(false, 0, 0); S.audio.engine(false, 0);
@@ -713,4 +722,8 @@ function closeChat() {
   S.input.lock();
 }
 
-initMenu();
+if (params.get('viewer')) import('./viewer.js').then((m) => m.runViewer(canvas, params));
+else {
+  initMenu();
+  Assets.load(); // start fetching models while the player is still on the menu
+}

@@ -9,6 +9,7 @@ import { clamp, lerp, mulberry32, smoothstep } from '../../shared/math.js';
 import { textures, repeated } from './textures.js';
 import { makeRifle, makeBlade, makePistol, makeKnife, makeLongLas, makeSilenced, glowMat } from './models.js';
 import { effectiveClass } from '../../shared/config.js';
+import { assetWeapon, weaponKey } from './weapons.js';
 
 // ------------------------------------------------------------------ shared materials
 
@@ -485,14 +486,17 @@ export class Humanoid {
     this.weaponKind = type === 'player' ? effectiveClass(cls, o.adv).weapon : (type === 'lancer' || type === 'officer' || o.role === 3 ? 'blaster' : null);
     this.slots = [];
     const slot = (obj, hand, hp, hr, mount, mp, mr) => { this.slots.push({ obj, hand, hp, hr, mount, mp, mr }); };
+    // pack guns when the models are loaded, procedural ones otherwise
+    const who = type === 'lancer' || type === 'officer' ? type : o.role === 3 ? 'hunter' : 'crew';
+    const gun = (fallback) => assetWeapon(weaponKey(this.weaponKind, who)) || fallback();
     if (this.weaponKind === 'blaster' || this.weaponKind === 'longlas') {
-      this.rifle = this.weaponKind === 'longlas' ? makeLongLas() : makeRifle();
+      this.rifle = gun(() => (this.weaponKind === 'longlas' ? makeLongLas() : makeRifle()));
       slot(this.rifle, this.handR, [0, -0.04, -0.02], [-Math.PI / 2, 0, 0], this.mBack, [0, 0, 0], [0, 0, 0]);
     }
     if (this.weaponKind === 'pistols' || this.weaponKind === 'pistol' || this.weaponKind === 'silenced') {
-      this.pistolR = this.weaponKind === 'silenced' ? makeSilenced() : makePistol();
+      this.pistolR = gun(() => (this.weaponKind === 'silenced' ? makeSilenced() : makePistol()));
       slot(this.pistolR, this.handR, [0, -0.06, -0.01], [-Math.PI / 2, 0, 0], this.mHipR, [0, 0, 0], [0, 0, 0]);
-      if (this.weaponKind === 'pistols') { this.pistolL = makePistol(); slot(this.pistolL, this.handL, [0, -0.06, -0.01], [-Math.PI / 2, 0, 0], this.mHipL, [0, 0, 0], [0, 0, 0]); }
+      if (this.weaponKind === 'pistols') { this.pistolL = gun(() => makePistol()); slot(this.pistolL, this.handL, [0, -0.06, -0.01], [-Math.PI / 2, 0, 0], this.mHipL, [0, 0, 0], [0, 0, 0]); }
     }
     if (this.weaponKind === 'knives') {
       this.knifeR = makeKnife(); this.knifeL = makeKnife();

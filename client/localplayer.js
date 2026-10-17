@@ -5,6 +5,7 @@ import { clamp, lerp, dirFromYawPitch, wrapAngle } from '../shared/math.js';
 import { moveBody, canStand, raycast, terrainHeight } from '../shared/world.js';
 import { stepSpeeder, SPEEDER } from '../shared/vehicles.js';
 import { makeRifle, makeBlade, makePistol, makeKnife, makeLongLas, makeSilenced } from './render/models.js';
+import { assetWeapon } from './render/weapons.js';
 
 const v3 = new THREE.Vector3();
 
@@ -272,17 +273,18 @@ export class ViewModel {
     this.group = new THREE.Group();
     camera.add(this.group);
     this.weaponKind = weapon;
-    this.rifle = makeRifle();
+    const gun = (key, fallback) => assetWeapon(key) || fallback();
+    this.rifle = gun('rifle', makeRifle);
     this.rifle.position.set(0.24, -0.22, -0.42);
     this.blade = weapon === 'knives' ? makeKnife() : makeBlade(BLADE_COLORS[colorIdx]);
     this.bladeHolder = new THREE.Group();
     this.bladeHolder.position.set(0.3, -0.38, -0.5);
     this.bladeHolder.add(this.blade);
-    this.pistolR = makePistol(); this.pistolL = makePistol();
+    this.pistolR = gun(weapon === 'pistols' ? 'revolver' : 'pistol', makePistol); this.pistolL = gun('revolver', makePistol);
     this.pistolR.position.set(0.2, -0.2, -0.38); this.pistolL.position.set(-0.2, -0.2, -0.38);
     this.knifeL = makeKnife(); this.knifeL.position.set(-0.3, -0.36, -0.48); this.knifeL.rotation.set(-0.3, 0, 0.3);
-    this.longlas = makeLongLas(); this.longlas.position.set(0.22, -0.24, -0.5);
-    this.silenced = makeSilenced(); this.silenced.position.set(0.2, -0.2, -0.38);
+    this.longlas = gun('longlas', makeLongLas); this.longlas.position.set(0.22, -0.24, -0.5);
+    this.silenced = gun('silenced', makeSilenced); this.silenced.position.set(0.2, -0.2, -0.38);
     this.group.add(this.rifle, this.bladeHolder, this.pistolR, this.pistolL, this.knifeL, this.longlas, this.silenced);
     this.group.traverse((m) => { if (m.isMesh) { m.castShadow = false; m.renderOrder = 10; } });
     this.swingT = 9;

@@ -25,7 +25,7 @@ function saveProfiles() {
   saveTimer = setTimeout(() => fs.writeFile(PROFILE_FILE, JSON.stringify(profiles, null, 1), () => {}), 1000);
 }
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.glb': 'model/gltf-binary', '.webp': 'image/webp', '.md': 'text/markdown' };
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');

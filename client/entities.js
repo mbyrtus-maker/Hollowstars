@@ -4,6 +4,12 @@ import { K, F, PLAYER_COLORS, BLADE_COLORS } from '../shared/config.js';
 import { lerp, lerpAngle, clamp, angleDiff } from '../shared/math.js';
 import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup, makeLandspeeder, makeHauler, makeMine, makeTurret, makeCloud } from './render/models.js';
 import { Humanoid } from './render/humanoid.js';
+import { AssetHumanoid, assetsReady } from './render/assethumanoid.js';
+import { kitModel, kitAnimated } from './render/props.js';
+import { KitCreature, COLONISTS, kitCreatureReady } from './render/kitcreature.js';
+import { Assets } from './render/assets.js';
+// people use the CC0 character assets when they've loaded, the procedural rig otherwise
+const Person = (type, opts) => (assetsReady() ? new AssetHumanoid(type, opts) : new Humanoid(type, opts));
 
 const HUMAN = { [K.PLAYER]: 'player', [K.LANCER]: 'lancer', [K.OFFICER]: 'officer', [K.CIVILIAN]: 'civilian', [K.MERCHANT]: 'merchant', [K.INFORMANT]: 'informant', [K.PRISONER]: 'prisoner', [K.BARTENDER]: 'bartender' };
 const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
@@ -35,7 +41,7 @@ export class Entities {
       let v = this.views.get(id);
       if (!v) {
         if (kind === K.PLAYER && !this.roster.has(id) && id !== this.myId) continue;
-        v = this.create(id, kind, a1, a2, flags);
+        try { v = this.create(id, kind, a1, a2, flags); } catch (e) { if (!this._warned) { this._warned = true; console.error('[entities] could not build', kind, e && e.stack); } v = null; }
         if (!v) continue;
         this.views.set(id, v);
       }
@@ -53,12 +59,17 @@ export class Entities {
       // town militia: armed townsfolk, not Concordance armour
       const militia = kind === K.LANCER && (flags & F.MILITIA);
       if (militia) { opts.role = 3; opts.variant = id * 7 + 3; }
+      // Concordance security droids, and suited colonists on the outer worlds
+      const droid = kind === K.LANCER && (flags & F.DROID) ? (id % 2 ? 'quadshell' : 'trilobite') : null;
+      const colonist = kind === K.CIVILIAN && !(a2 | 0) && (this.planet === 'thessaly' || this.planet === 'korrun') && (a1 | 0) % 3 === 0 ? COLONISTS[(a1 | 0) % 4] : null;
+      const kc = droid || colonist;
       if (kind === K.PLAYER) {
         const r = this.roster.get(id);
         const c = r ? r.color : 0;
         opts.color = PLAYER_COLORS[c]; opts.bladeColor = BLADE_COLORS[c]; opts.colorIdx = c; opts.cls = r ? r.cls : 'soldier'; opts.adv = r ? r.adv : null; opts.branch = r ? r.branch : null;
       }
-      human = new Humanoid(militia ? 'civilian' : HUMAN[kind], opts);
+      if (kc && kitCreatureReady(kc)) human = new KitCreature(kc, { type: HUMAN[kind], weaponKind: droid ? 'blaster' : null });
+      else human = Person(militia ? 'civilian' : HUMAN[kind], opts);
       model = human.root;
     } else if (kind === K.CRITTER) { critter = new Critter(a1 || id); model = critter.root; }
     else if (kind === K.SPEEDER) {
@@ -67,17 +78,17 @@ export class Entities {
       const paint = pi >= 8 ? new THREE.Color(PLAYER_COLORS[pi - 8]).getHex() : PAINT[pi % PAINT.length];
       model = mk === 1 ? makeLandspeeder(paint) : mk === 2 ? makeHauler(paint, id) : (pi >= 8 ? makeSpeeder(paint, 0x2a2c32) : makeSpeeder(paint, PAINT[(pi + 3) % PAINT.length]));
     }
-    else if (kind === K.CAMERA) model = makeSecCam();
-    else if (kind === K.GRENADE) model = makeGrenade();
-    else if (kind === K.PICKUP) model = makePickup(a1);
-    else if (kind === K.TRAFFIC) ({ model, riders } = makeTraffic(a1, a2));
-    else if (kind === K.MINE) model = makeMine(PLAYER_COLORS[a1 | 0]);
+    else if (kind === K.CAMERA) model = kitCamera();
+    else if (kind === K.GRENADE) model = kitGrenade();
+    else if (kind === K.PICKUP) model = kitPickup(a1);
+    else if (kind === K.TRAFFIC) ({ model, riders } = makeTraffic(a1, a2, this.planet));
+    else if (kind === K.MINE) model = kitMine(PLAYER_COLORS[a1 | 0]);
     else if (kind === K.TURRET) model = makeTurret(PLAYER_COLORS[a1 | 0]);
     else if (kind === K.CLOUD) model = makeCloud(a1 === 1, a2 || 5);
     else if (kind === K.DECOY) {
       // a flickering hologram of the Agent who projected it
       const r = this.roster.get(a2) || {};
-      human = new Humanoid('player', { variant: a2, color: PLAYER_COLORS[r.color || 0], colorIdx: r.color || 0, cls: r.cls || 'spy', adv: r.adv });
+      human = Person('player', { variant: a2, color: PLAYER_COLORS[r.color || 0], colorIdx: r.color || 0, cls: r.cls || 'spy', adv: r.adv });
       human.setShroud(true, 0.42);
       model = human.root;
     }
@@ -150,7 +161,8 @@ export class Entities {
       else if (v.kind === K.SPEEDER) this.animateSpeeder(v, dt, t);
       else if (v.kind === K.TRAFFIC) this.animateTraffic(v, fl, dt, t);
       else if (v.kind === K.CAMERA) this.animateCam(v, fl, t);
-      else if (v.kind === K.TURRET) { m.rotation.y = 0; m.userData.head.rotation.y = v.yaw; m.userData.eye.visible = Math.sin(t * 9) > -0.6; }
+      if (m.userData.mixer) m.userData.mixer.update(dt);
+      if (v.kind === K.TURRET) { m.rotation.y = 0; m.userData.head.rotation.y = v.yaw; m.userData.eye.visible = Math.sin(t * 9) > -0.6; }
       else if (v.kind === K.CLOUD) { m.rotation.y = 0; m.userData.ring.material.opacity = 0.3 + Math.sin(t * 3) * 0.15; for (const p of m.userData.puffs) { p.position.y = 0.6 + Math.sin(t * 0.8 + p.userData.seed) * 0.4 + p.userData.seed * 0.08; p.rotation.y = t * 0.2 + p.userData.seed; } }
       else if (v.kind === K.MINE) { m.userData.light.visible = (fl & F.ALERT) ? Math.sin(t * 6) > 0 : Math.sin(t * 20) > 0.6; }
       else if (v.kind === K.GRENADE) { m.userData.light.visible = Math.sin(t * 22) > 0; m.rotation.x += dt * 9; }
@@ -295,11 +307,71 @@ export class Entities {
   }
 }
 
+// ------------------------------------------------------------------ pack models for small things
+
+// Security cameras are Concordance eye drones: the procedural mount keeps its vision cone and lens
+function kitCamera() {
+  const g = makeSecCam();
+  const drone = Assets.ready && kitAnimated('Enemy_EyeDrone', 0.55, 'Enemy_EyeDrone|Look');
+  if (!drone) return g;
+  const head = g.userData.head;
+  head.children.forEach((c) => { if (c !== g.userData.cone && c !== g.userData.lens) c.visible = false; });
+  g.children[0].visible = false; // the post
+  drone.position.set(0, -0.28, -0.05);
+  head.add(drone);
+  g.userData.lens.position.set(0, 0, -0.27);
+  g.userData.lens.scale.setScalar(0.6);
+  g.userData.mixer = drone.userData.mixer;
+  return g;
+}
+function kitGrenade() {
+  const k = Assets.ready && kitModel('Prop_Grenade', 0.26);
+  if (!k) return makeGrenade();
+  const l = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff4030).multiplyScalar(4), toneMapped: false }));
+  l.position.y = 0.2; k.add(l); k.userData.light = l;
+  k.userData.inner.position.y = -0.1;
+  return k;
+}
+function kitMine(color) {
+  const base = makeMine(color);
+  const k = Assets.ready && kitModel('Prop_Mine', 0.5);
+  if (!k) return base;
+  base.children.forEach((c) => { if (c !== base.userData.light && !(c.geometry && c.geometry.type === 'RingGeometry')) c.visible = false; });
+  base.add(k);
+  base.userData.light.position.y = 0.16;
+  return base;
+}
+function kitPickup(code) {
+  const base = makePickup(code);
+  const k = Assets.ready && (code === 1 ? kitModel('Prop_KeyCard', 0.3) : kitModel('Pickup_Sphere', 0.4));
+  if (!k) return base;
+  base.children.forEach((c) => { if (!(c.geometry && c.geometry.type === 'RingGeometry')) c.visible = false; });
+  k.position.y = -0.12;
+  base.add(k);
+  return base;
+}
+
 // A townsperson's ride: bike, landspeeder or cargo hauler, with a driver (and sometimes a passenger)
 const PAINT = [0xb8a27e, 0x7a8e9a, 0xa04a3a, 0xd8d2c4, 0x5a6a4a, 0x3a4a6a, 0xc98d2e, 0x8a6a8a];
-function makeTraffic(kind, seed) {
+// Korrun's ice roads are worked by wheeled colony rovers instead of hover haulers
+function makeRover(seed) {
+  const v = new THREE.Group();
+  const body = kitModel(seed % 2 ? 'SK_Rover_2' : 'SK_Rover_Round', 5.6, true);
+  if (!body) return null;
+  v.add(body);
+  const under = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+  under.visible = false;
+  v.add(under);
+  v.userData = { body, under, seats: [] };
+  return v;
+}
+function makeTraffic(kind, seed, planet) {
   const model = new THREE.Group();
   const paint = PAINT[seed % PAINT.length];
+  if (kind !== 1 && kind !== 2 && planet === 'korrun' && Assets.ready) {
+    const vehicle = makeRover(seed);
+    if (vehicle) { model.add(vehicle); model.userData.vehicle = vehicle; return { model, riders: [] }; }
+  }
   const vehicle = kind === 1 ? makeSpeeder(paint, PAINT[(seed >> 3) % PAINT.length]) : kind === 2 ? makeLandspeeder(paint) : makeHauler(PAINT[(seed >> 2) % PAINT.length], seed);
   model.add(vehicle);
   model.userData.vehicle = vehicle;
@@ -307,7 +379,7 @@ function makeTraffic(kind, seed) {
   const seats = kind === 1 ? [[0, 0.31, 0.45]] : vehicle.userData.seats;
   seats.forEach(([x, y, z], i) => {
     if (i > 0 && seed % 5 > 1) return; // passenger sometimes
-    const human = new Humanoid('civilian', { variant: seed * 3 + i * 17 + 5 });
+    const human = Person('civilian', { variant: seed * 3 + i * 17 + 5 });
     human.root.position.set(x, y - 0.42, z);
     vehicle.userData.body.add(human.root);
     riders.push({ human });

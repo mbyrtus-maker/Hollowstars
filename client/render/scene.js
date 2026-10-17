@@ -14,6 +14,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { makeWayfarer, makeNpcShip } from './ship.js';
 import { padState } from '../../shared/spaceport.js';
+import { Assets } from './assets.js';
+import { ModelBatch, animatedProp, pick, hash, kitAnimated } from './props.js';
 
 export const MAT_COLORS = {
   [MAT.ADOBE]: 0xc99a6a, [MAT.ADOBE_DARK]: 0xa8774f, [MAT.METAL]: 0xb6b9c1, [MAT.METAL_DARK]: 0x4a4e5a, [MAT.CRATE]: 0x7d6a4e,
@@ -98,7 +100,7 @@ export function createScene(canvas, world, look) {
   let useBloom = true;
 
   // ---- everything that belongs to one planet lives in worldGroup and is rebuilt on arrival
-  let W = null, L = null, worldGroup = null, weather = null, envTex = null, water = null, fires = [], nodes = null, traders = [];
+  let W = null, L = null, worldGroup = null, weather = null, envTex = null, water = null, fires = [], nodes = null, traders = [], propAnims = [];
   let lampT = 0;
 
   function disposeGroup(g) {
@@ -150,12 +152,20 @@ export function createScene(canvas, world, look) {
     worldGroup.add(decor.group);
     api.ship = decor.ship;
     fires = decor.fires;
+    propAnims = decor.anims || [];
+    if (Assets.ready) worldGroup.add(makeSkyPlanets(world, look));
     nodes = makeNodes(world);
     worldGroup.add(nodes.group);
-    traders = world.pads.map((pad) => {
+    traders = world.pads.map((pad, i) => {
       const g = new THREE.Group();
       const ships = {};
-      for (const type of ['hauler', 'skiff', 'lander']) { ships[type] = makeNpcShip(type); ships[type].group.visible = false; g.add(ships[type].group); }
+      // couriers and pilgrim landers fly Space Kit hulls when the models are loaded
+      const KIT = { skiff: [['SK_Spaceship_FernandoTheFlamingo', 13], ['SK_Spaceship_RaeTheRedPanda', 11]], lander: [['SK_Spaceship_BarbaraTheBee', 15], ['SK_Spaceship_FinnTheFrog', 15]] };
+      for (const type of ['hauler', 'skiff', 'lander']) {
+        const k = KIT[type] && Assets.ready ? KIT[type][i % 2] : null;
+        ships[type] = (k && makeKitShip(k[0], k[1])) || makeNpcShip(type);
+        ships[type].group.visible = false; g.add(ships[type].group);
+      }
       worldGroup.add(g);
       return { pad, ships };
     });
@@ -240,6 +250,7 @@ export function createScene(canvas, world, look) {
       alarmLights.forEach((l, i) => { l.intensity = api.alarm && l.visible ? (Math.sin(t * 7 + i * 1.6) > 0 ? 120 : 10) : 0; });
       if (weather) weather.update(dt, t, camera.position);
       if (api.serverTime != null) updateTraders(traders, api.serverTime, t);
+      for (const m of propAnims) m.update(dt);
       if (nodes) nodes.update(t);
       if (water) water.material.opacity = 0.84 + Math.sin(t * 0.7) * 0.02;
     },
@@ -598,11 +609,15 @@ function buildStatics(world, T) {
   const byClass = new Map();
   const glowBoxes = [];
   const c = new THREE.Color();
+  const batch = new ModelBatch();
+  const CRATES = ['Prop_Crate', 'Prop_Crate_Large', 'Prop_Crate_Tarp', 'MK_Prop_Crate3', 'MK_Prop_Crate4', 'Prop_Crate_Tarp_Large'];
   for (const b of world.boxes) {
     if (!b.render) continue;
     if (b.tag === 'door' || b.tag === 'tank' || b.tag === 'mast' || b.mat === MAT.ROCK) continue;
     const w = b.maxX - b.minX, h = b.maxY - b.minY, d = b.maxZ - b.minZ;
     const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2, cz = (b.minZ + b.maxZ) / 2;
+    // crates become the packs' cargo crates when the models are loaded
+    if (b.mat === MAT.CRATE && Assets.ready && batch.fit(pick(CRATES, b.id * 7 + 3), cx, b.minY, cz, w, h, d, Math.floor(hash(cx, cz) * 4) * Math.PI / 2)) continue;
     if (b.mat === MAT.LAMP || b.mat === MAT.SCREEN) {
       const g = new THREE.BoxGeometry(w, h, d);
       g.translate(cx, cy, cz);
@@ -644,6 +659,7 @@ function buildStatics(world, T) {
     const m = new THREE.Mesh(g, glowMat(MAT_COLORS[mt], mt === MAT.LAMP ? 1.7 : 0.8));
     group.add(m);
   }
+  group.add(batch.build());
   return { group };
 }
 
@@ -673,13 +689,56 @@ function makeDecor(world, look) {
   const g = new THREE.Group();
   const fires = [];
   let ship = null;
-  const trees = world.decor.filter((d) => d.type === 'tree');
+  let trees = world.decor.filter((d) => d.type === 'tree');
   const spires = world.decor.filter((d) => d.type === 'spire');
+  const batch = new ModelBatch();
+  const anims = [];
+  // the drowned forest gets a share of the Space Kit's alien trees
+  if (Assets.ready && world.planet === 'thessaly') {
+    const ALIEN = ['SK_Tree_Blob_1', 'SK_Tree_Blob_2', 'SK_Tree_Blob_3', 'SK_Tree_Spiral_1', 'SK_Tree_Spiral_2', 'SK_Tree_Swirl_1', 'SK_Tree_Floating_1'];
+    const keep = [];
+    for (const d of trees) {
+      if (d.v < 0.42) { const n = pick(ALIEN, d.v * 997 + d.x); const h = Assets.bounds(n).getSize(new THREE.Vector3()).y || 1; batch.add(n, d.x, d.y - 0.2, d.z, d.v * 6, (7 + d.s * 3) / h); }
+      else keep.push(d);
+    }
+    trees = keep;
+  }
   if (trees.length) g.add(makeTrees(trees));
   if (spires.length) g.add(makeSpires(spires));
   const banner = mat(0xa3243a, { rough: 1 });
   const bulbRuns = [];
   for (const d of world.decor) {
+    if (d.type === 'model') {
+      // pack models placed by the world builder: static ones are batched, animated ones get a mixer
+      if (!Assets.ready) continue;
+      if (d.anim) {
+        const a = animatedProp(d.name, d.anim);
+        if (a) { a.object.position.set(d.x, d.y, d.z); a.object.rotation.y = d.yaw || 0; a.object.scale.setScalar(d.s || 1); g.add(a.object); anims.push(a.mixer); }
+      } else batch.add(d.name, d.x, d.y, d.z, d.yaw || 0, d.s || 1);
+      continue;
+    }
+    if (d.type === 'specimen') {
+      // a cryo tank: plinth, glass, cap, and something from the MegaKit drifting inside
+      const t = new THREE.Group();
+      t.position.set(d.x, d.y, d.z);
+      const metal = mat(0x2a2e36, { rough: 0.5, metal: 0.7 });
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.82, 0.38, 20), metal);
+      base.position.y = 0.19;
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.76, 0.7, 0.26, 20), metal);
+      cap.position.y = 2.66;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.035, 6, 28), glowMat(0x58e0ff, 2.2));
+      ring.rotation.x = Math.PI / 2; ring.position.y = 0.4;
+      const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 2.16, 24, 1, true), new THREE.MeshStandardMaterial({ color: 0x8fe8ff, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, emissive: 0x0a3a4a }));
+      glass.position.y = 1.46;
+      t.add(base, cap, ring, glass);
+      base.castShadow = cap.castShadow = true;
+      if (Assets.ready && d.alien) {
+        const a = kitAnimated(d.alien, 1.25, d.alien + '|Alien_Idle', true);
+        if (a) { a.position.y = 0.62; a.rotation.y = d.yaw || 0; t.add(a); anims.push(a.userData.mixer); }
+      }
+      g.add(t);
+      continue;
+    }
     if (d.type === 'rock') {
       const geo = new THREE.IcosahedronGeometry(0.62, 1);
       const p = geo.attributes.position;
@@ -841,7 +900,8 @@ function makeDecor(world, look) {
     }
     g.add(bulbs);
   }
-  return { group: g, ship, fires };
+  g.add(batch.build());
+  return { group: g, ship, fires, anims };
 }
 
 // Drowned-forest trees: buttressed trunks with layered canopies, instanced
@@ -998,7 +1058,56 @@ function makeNodes(world) {
   };
 }
 
+// ------------------------------------------------------------------ sky planets
+
+// A couple of the Space Kit's planets hang in each sky, far beyond the fog
+function makeSkyPlanets(world, look) {
+  const g = new THREE.Group();
+  const sets = { duskvaro: [['SK_Planet_1', -0.55, 0.32, 150], ['SK_Planet_9', 0.9, 0.18, 70]], thessaly: [['SK_Planet_6', 0.4, 0.38, 120]], korrun: [['SK_Planet_6', -1.2, 0.3, 170], ['SK_Planet_9', 1.6, 0.22, 60]] };
+  for (const [name, az, el, size] of sets[world.planet] || []) {
+    const o = Assets.instance(name);
+    if (!o) continue;
+    const b = new THREE.Box3().setFromObject(o), r = b.getSize(new THREE.Vector3()).length() / 2 || 1;
+    o.scale.setScalar(size / r);
+    const dist = 1500;
+    o.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, -Math.cos(az) * Math.cos(el) * dist);
+    o.traverse((m) => {
+      if (!m.isMesh) return;
+      m.castShadow = false; m.receiveShadow = false;
+      m.material = m.material.clone();
+      m.material.fog = false;
+      m.material.emissive = new THREE.Color(0xffffff); m.material.emissiveMap = m.material.map; m.material.emissiveIntensity = 0.35;
+    });
+    o.userData.sky = true;
+    g.add(o);
+  }
+  return g;
+}
+
 // ------------------------------------------------------------------ trader ships
+
+// A Space Kit ship wrapped to behave like the procedural traders (faces -Z, engine glow)
+function makeKitShip(name, length) {
+  const o = Assets.instance(name);
+  if (!o) return null;
+  const g = new THREE.Group();
+  const b = new THREE.Box3().setFromObject(o), size = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  const sc = length / Math.max(size.x, size.z);
+  const inner = new THREE.Group();
+  inner.rotation.y = Math.PI; // the kit's ships face +Z
+  inner.scale.setScalar(sc);
+  o.position.set(-c.x, -b.min.y, -c.z);
+  inner.add(o);
+  g.add(inner);
+  o.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  const glows = [];
+  for (const sx of [-1, 1]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.6, 10, 8), glowMat(0x6ad8ff, 2));
+    e.position.set(sx * size.x * sc * 0.18, size.y * sc * 0.4, size.z * sc * 0.5);
+    g.add(e); glows.push(e);
+  }
+  return { group: g, setRamp() {}, setThrust(v) { for (const e of glows) { e.scale.setScalar(0.4 + v * 1.3); e.visible = v > 0.05; } }, height: size.y * sc };
+}
 
 const easeOut = (k) => 1 - (1 - k) * (1 - k);
 function updateTraders(traders, time, t) {

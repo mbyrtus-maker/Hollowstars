@@ -129,10 +129,13 @@ export class Game {
     this.alarm.active = false;
     this.camerasOn = true;
     this.camOffUntil = 0;
+    let droids = 0;
     for (const def of garrisonRoster(this.world)) {
       const g = spawnGuard(this, def);
       g.garrison = true;
       if (def.officer) this.officerId = g.id;
+      // two of the patrols in every garrison are Concordance security droids
+      else if (droids < 2 && !def.tower && !def.post && def.tasks.length > 1) { g.droid = droids + 1; droids++; }
     }
     for (const c of this.world.cameras) {
       this.spawn({ kind: K.CAMERA, x: c.x, y: c.y, z: c.z, yaw: c.yaw, hp: 25, maxHp: 25, garrison: true, hostile: true, r: 0.3, h: 0.5, lookYaw: c.yaw, ai: { baseYaw: c.yaw, sweep: c.sweep, speed: c.speed, phase: this.rng() * 6, sus: 0, alert: 0, state: 'cam' } });
@@ -589,6 +592,7 @@ export class Game {
     }
   }
   bark(e, text) {
+    if (e.droid) text = 'UNIT ' + (40 + e.id % 60) + ': ' + text.toUpperCase(); // droids report in flat caps
     const last = this.barkT.get(e.id) || -9;
     if (this.time - last < 2.2) return;
     this.barkT.set(e.id, this.time);
@@ -1397,6 +1401,7 @@ export class Game {
       if (e.kind === K.CIVILIAN) a2 = e.roleCode | 0;
     }
     if (e.militia) flags |= F.MILITIA;
+    if (e.droid) flags |= F.DROID;
     if (e.kind === K.SPEEDER && e.stolenBy) flags |= F.STOLEN;
     if (e.dead) flags |= F.DEAD;
     if (e.stagger > 0) flags |= F.STAGGER;

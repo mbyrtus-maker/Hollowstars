@@ -2,6 +2,7 @@
 import { box, addBox, building, addDoor, lamp, crate, placeShip, registerLayout, terrainHeight, roadDistance, markWorld, shiftWorld, SITE_SHIFT, MAT } from './world.js';
 import { mulberry32, dist2 } from './math.js';
 import './districts.js';
+import './dressing.js';
 
 // Scatter solid props (trees, ice spires) across open ground, clear of settlements, sites and roads.
 function scatterProps(W, type, seed, count, span, clear, mk) {
