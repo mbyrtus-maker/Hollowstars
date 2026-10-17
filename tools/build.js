@@ -31,6 +31,8 @@ function copyAssets(to) {
   for (const f of fs.readdirSync(path.join(ROOT, 'client/assets'))) fs.copyFileSync(path.join(ROOT, 'client/assets', f), path.join(to, f));
 }
 copyAssets(path.join(DIST, 'assets'));
+// Hosts that won't serve .glb (a published Claude artifact) get each model as base64 text too
+for (const f of fs.readdirSync(path.join(DIST, 'assets'))) if (f.endsWith('.glb')) fs.writeFileSync(path.join(DIST, 'assets', f + '.b64.txt'), fs.readFileSync(path.join(DIST, 'assets', f)).toString('base64'));
 const kb = (fs.statSync(path.join(DIST, 'game.js')).size / 1024).toFixed(0);
 console.log(`Built dist/game.js (${kb} KB)`);
 

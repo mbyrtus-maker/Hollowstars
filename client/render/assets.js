@@ -34,9 +34,7 @@ export const Assets = {
       let done = 0;
       try {
         await Promise.all(FILES.map(async (f) => {
-          const res = await fetch(this.base() + f + '.glb');
-          if (!res.ok) throw new Error(`${f}.glb: HTTP ${res.status}`);
-          const buf = await res.arrayBuffer();
+          const buf = await this.fetchGlb(f);
           this.bytes += buf.byteLength;
           const gltf = await loader.parseAsync(buf, this.base());
           // the loader makes repeated node names unique (pelvis, pelvis_1...); several skeletons share
@@ -75,6 +73,24 @@ export const Assets = {
       }
     })();
     return this._promise;
+  },
+
+  // The .glb itself, or (where the host won't serve .glb, as in a published Claude artifact) its base64 copy
+  async fetchGlb(f) {
+    const isGlb = (b) => b.byteLength > 12 && new Uint32Array(b, 0, 1)[0] === 0x46546c67; // 'glTF'
+    const glb = async () => { const r = await fetch(this.base() + f + '.glb'); return r.ok ? r.arrayBuffer() : null; };
+    const b64 = async () => {
+      const r = await fetch(this.base() + f + '.glb.b64.txt');
+      if (!r.ok) return null;
+      const s = atob((await r.text()).trim()), out = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+      return out.buffer;
+    };
+    const order = /claude\.ai$|claudeusercontent\.com$/.test(location.hostname) ? [b64, glb] : [glb, b64];
+    for (const get of order) {
+      try { const b = await get(); if (b && isGlb(b)) return b; } catch (e) { /* try the other form */ }
+    }
+    throw new Error(`${f}.glb could not be loaded`);
   },
 
   prepare() {
