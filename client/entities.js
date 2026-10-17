@@ -353,10 +353,10 @@ function kitPickup(code) {
 
 // A townsperson's ride: bike, landspeeder or cargo hauler, with a driver (and sometimes a passenger)
 const PAINT = [0xb8a27e, 0x7a8e9a, 0xa04a3a, 0xd8d2c4, 0x5a6a4a, 0x3a4a6a, 0xc98d2e, 0x8a6a8a];
-// Korrun's ice roads are worked by wheeled colony rovers instead of hover haulers
+// Korrun's ice roads are worked by wheeled KayKit space trucks (or a Space Kit rover) instead of hover haulers
 function makeRover(seed) {
   const v = new THREE.Group();
-  const body = kitModel(seed % 2 ? 'SK_Rover_2' : 'SK_Rover_Round', 5.6, true);
+  const body = seed % 3 === 2 ? kitModel('SK_Rover_Round', 5.6, true) : kitModel('KK_spacetruck_large', 5.6, true);
   if (!body) return null;
   v.add(body);
   const under = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));

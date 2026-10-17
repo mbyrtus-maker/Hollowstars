@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
-const FILES = ['people', 'anims', 'weapons', 'props', 'megakit', 'space'];
+const FILES = ['people', 'anims', 'weapons', 'props', 'megakit', 'space', 'kits', 'ships'];
 
 // Bones that belong to the upper body; clips are split so legs and torso can play different animations
 const UPPER = new Set(['spine_02', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'clavicle_r', 'upperarm_l', 'upperarm_r', 'lowerarm_l', 'lowerarm_r', 'hand_l', 'hand_r']);

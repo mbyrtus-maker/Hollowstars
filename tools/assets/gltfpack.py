@@ -447,11 +447,17 @@ def reduce_keys(times, vals, tol):
 
 
 # ------------------------------------------------------------ OBJ + MTL -> pack
-def add_obj(pack, obj_path, name, scale=1.0):
-    """Flat-coloured OBJ models (the Sci-Fi Gun Pack): one primitive per material."""
+def add_obj(pack, obj_path, name, scale=1.0, palette=None, recolor=None):
+    """Flat-coloured OBJ models (the Sci-Fi Gun Pack): one primitive per material.
+    With `palette` (a small colour-atlas image the OBJ's UVs point into, as in the Ultimate Building
+    Pack) each face takes its atlas colour as a vertex colour; `recolor` can remap those colours."""
     d = os.path.dirname(obj_path)
     mats, cur = {}, None
-    V, N, faces = [], [], {}
+    V, N, faces, UV = [], [], {}, []
+    pal = None
+    if palette:
+        from PIL import Image
+        pal = np.asarray(Image.open(palette).convert('RGB'), np.float32) / 255.0
     mtl_file = None
     for line in open(obj_path, encoding='utf-8', errors='ignore'):
         p = line.split()
@@ -463,6 +469,8 @@ def add_obj(pack, obj_path, name, scale=1.0):
             V.append([float(x) for x in p[1:4]])
         elif p[0] == 'vn':
             N.append([float(x) for x in p[1:4]])
+        elif p[0] == 'vt':
+            UV.append([float(x) for x in p[1:3]])
         elif p[0] == 'usemtl':
             cur = p[1]
         elif p[0] == 'f':
@@ -470,7 +478,8 @@ def add_obj(pack, obj_path, name, scale=1.0):
             for c in p[1:]:
                 s = c.split('/')
                 vi = int(s[0]); ni = int(s[2]) if len(s) > 2 and s[2] else 0
-                idx.append((vi - 1 if vi > 0 else len(V) + vi, (ni - 1 if ni > 0 else len(N) + ni) if ni else -1))
+                ti = int(s[1]) if len(s) > 1 and s[1] else 0
+                idx.append((vi - 1 if vi > 0 else len(V) + vi, (ni - 1 if ni > 0 else len(N) + ni) if ni else -1, (ti - 1 if ti > 0 else len(UV) + ti) if ti else -1))
             for k in range(1, len(idx) - 1):
                 faces.setdefault(cur, []).append((idx[0], idx[k], idx[k + 1]))
     if mtl_file and os.path.exists(mtl_file):
@@ -486,25 +495,41 @@ def add_obj(pack, obj_path, name, scale=1.0):
     V = np.array(V, np.float32) * scale
     N = np.array(N, np.float32) if N else None
     raw = []
+    cache = {}
+    def face_colour(tri):
+        if pal is None or not UV or tri[0][2] < 0:
+            return None
+        u = sum(UV[t[2]][0] for t in tri) / 3 % 1.0; v = sum(UV[t[2]][1] for t in tri) / 3 % 1.0
+        h, w = pal.shape[:2]
+        c = tuple(float(x) for x in pal[min(h - 1, int((1 - v) * h)), min(w - 1, int(u * w))])
+        if recolor:
+            if c not in cache:
+                cache[c] = tuple(recolor(c))
+            c = cache[c]
+        return tuple(round(srgb_to_lin(x), 4) for x in c)
     for mname, tris in faces.items():
         verts, lookup, idx = [], {}, []
         for tri in tris:
             a, b, c = (V[t[0]] for t in tri)
             fn = np.cross(b - a, c - a); l = np.linalg.norm(fn) or 1; fn = fn / l
+            fc = face_colour(tri)
             for t in tri:
                 nv = N[t[1]] if (N is not None and t[1] >= 0) else fn
-                key = (t[0], tuple(np.round(nv, 3)))
+                key = (t[0], tuple(np.round(nv, 3)), fc)
                 if key not in lookup:
-                    lookup[key] = len(verts); verts.append((V[t[0]], nv))
+                    lookup[key] = len(verts); verts.append((V[t[0]], nv, fc))
                 idx.append(lookup[key])
         pos = np.array([v[0] for v in verts], np.float32); nor = np.array([v[1] for v in verts], np.float32)
         mt = mats.get(mname, {'Kd': [0.8, 0.8, 0.8], 'Ke': [0, 0, 0]})
-        col = [srgb_to_lin(x) for x in mt['Kd']]
-        mat = {'name': mname, 'pbrMetallicRoughness': {'baseColorFactor': col + [1], 'metallicFactor': 0.25, 'roughnessFactor': 0.55}}
-        if max(mt['Ke']) > 0.01:
+        col = [1.0, 1.0, 1.0] if pal is not None else [srgb_to_lin(x) for x in mt['Kd']]
+        mat = {'name': mname, 'pbrMetallicRoughness': {'baseColorFactor': col + [1], 'metallicFactor': 0.0 if pal is not None else 0.25, 'roughnessFactor': 0.85 if pal is not None else 0.55}}
+        if max(mt['Ke']) > 0.01 and pal is None:
             mat['emissiveFactor'] = [min(1, x) for x in mt['Ke']]
         pack.j['materials'].append(mat)
-        raw.append(({'POSITION': (pos, 'VEC3'), 'NORMAL': (nor, 'VEC3')}, np.array(idx), len(pack.j['materials']) - 1, 4))
+        attrs = {'POSITION': (pos, 'VEC3'), 'NORMAL': (nor, 'VEC3')}
+        if pal is not None:
+            attrs['COLOR_0'] = (np.array([v[2] or (0.8, 0.8, 0.8) for v in verts], np.float32), 'VEC3')
+        raw.append((attrs, np.array(idx), len(pack.j['materials']) - 1, 4))
     prims, q = pack.encode_prims(raw)
     pack.j['meshes'].append({'name': name, 'primitives': prims})
     node = {'name': name, 'children': []}

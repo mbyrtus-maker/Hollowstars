@@ -1,4 +1,4 @@
-"""Builds client/assets/*.glb from the Quaternius packs (all CC0).
+"""Builds client/assets/*.glb from the Quaternius, Kenney and KayKit packs (all CC0).
 
     python3 tools/assets/build_assets.py /path/to/unzipped/packs
 
@@ -104,3 +104,29 @@ for g in ('Astronaut_FinnTheFrog', 'Astronaut_RaeTheRedPanda', 'Astronaut_Barbar
 for g in ('Mech_FinnTheFrog', 'Mech_BarbaraTheBee'):
     p.add_model(find(f'{SK}/Characters/GLTF/{g}.gltf'), 'SK_' + g, tex_size=256, anims=['Idle', 'Walk', 'Pickup', 'Hello', 'Death'], anim_prefix='SK_' + g + '|')
 done(p, 'space.glb')
+
+# ---------------------------------------------------------------- town and colony kits: Kenney Space Kit, KayKit Space Base Bits,
+# Quaternius Ultimate Textured Building Pack (recoloured to Dusk Varo's adobe)
+p = Pack()
+for g in ('hangar_largeA', 'hangar_roundA', 'machine_generatorLarge', 'satelliteDish_large'):
+    p.add_model(find(f'kenney/Models/GLTF format/{g}.glb'), 'KN_' + g, tex_size=256)
+for g in ('basemodule_A', 'basemodule_B', 'basemodule_C', 'basemodule_D', 'basemodule_E', 'basemodule_garage',
+          'cargodepot_A', 'cargodepot_B', 'containers_A', 'containers_B', 'containers_C', 'containers_D', 'drill_structure',
+          'spacetruck_large', 'windturbine_low', 'windturbine_tall'):
+    p.add_model(find(f'KayKit_Space_Base_Bits*/Assets/gltf/{g}.gltf'), 'KK_' + g, tex_size=256)
+# the building pack's light palette, mapped onto sun-baked adobe: walls, ledges, roofs, stonework, trim, clay footings
+ADOBE = {(165, 165, 165): (201, 154, 106), (146, 135, 127): (168, 119, 79), (184, 178, 176): (186, 140, 96), (201, 201, 201): (218, 180, 136),
+         (212, 212, 212): (230, 204, 164), (136, 129, 118): (150, 98, 64), (89, 91, 109): (66, 46, 36), (116, 138, 155): (58, 86, 96),
+         (73, 73, 73): (80, 60, 48), (0, 0, 0): (30, 22, 18), (237, 28, 36): (168, 72, 48)}
+def adobe(c):
+    k = tuple(int(round(x * 255)) for x in c)
+    return tuple(x / 255 for x in ADOBE.get(k, k))
+UB = 'Ultimate Textured Building Pack*/Textured Models'
+for g in ('1Story', '1Story_RoundRoof', '2Story', '2Story_Balcony', '2Story_Columns', '2Story_Stairs', '3Story_Small'):
+    add_obj(p, find(f'{UB}/Finished Textured Buildings/OBJ/{g}.obj'), 'UBA_' + g, palette=find(f'{UB}/Textures/Texture_Light.png'), recolor=adobe)
+done(p, 'kits.glb')
+
+# ---------------------------------------------------------------- the Wayfarer: Challenger from the Ultimate Spaceships Pack (glTF folder)
+p = Pack()
+p.add_model(find('glTF/Challenger.gltf'), 'SHIP_Challenger', tex_size=1024)
+done(p, 'ships.glb')

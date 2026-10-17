@@ -3,6 +3,7 @@
 // (shared/economy.js) or the traffic and ship schedules.
 import { box, addBox, building, lamp, crate, terrainHeight, extendLayout, MAT } from './world.js';
 import { mulberry32, dist2, distPointSegXZ } from './math.js';
+import { packBuilding } from './packs.js';
 
 const T = (x, z, act = 'look', wait = [1.5, 3.5], face, give) => ({ x, z, act, wait, face, give });
 const yawTo = (fx, fz, tx, tz) => Math.atan2(-(tx - fx), -(tz - fz));
@@ -52,8 +53,15 @@ function node(W, kind, x, z, y) { W.nodes.push({ id: W.nodes.length, kind, x, z,
 
 // ------------------------------------------------------------------ houses
 
+// Outer-ring houses wear pack models (shared/packs.js): recoloured Quaternius townhouses on Dusk Varo,
+// KayKit base modules on Korrun. Thessaly's stilt huts stay procedural for now.
+const ADOBE_SKINS = ['UBA_1Story', 'UBA_1Story_RoundRoof', 'UBA_1Story', 'UBA_2Story', 'UBA_1Story_RoundRoof', 'UBA_2Story_Columns', 'UBA_1Story', 'UBA_2Story_Stairs'];
+const PREFAB_SKINS = ['KK_basemodule_A', 'KK_basemodule_C', 'KK_basemodule_B', 'KK_basemodule_E', 'KK_basemodule_D', 'KK_basemodule_garage'];
+export const prefabSkin = (i) => PREFAB_SKINS[i % PREFAB_SKINS.length];
+
 function house(W, style, hx, hz, w, d, y, side, i) {
-  if (style === 'adobe') {
+  if (style === 'adobe') return packBuilding(W, ADOBE_SKINS[i % ADOBE_SKINS.length], hx - w / 2, hz - d / 2, hx + w / 2, hz + d / 2, y, side, { mat: i % 2 ? MAT.ADOBE : MAT.ADOBE_DARK, roofMat: MAT.ADOBE_DARK });
+  if (style === 'adobe-plain') {
     const door = building(W, hx - w / 2, hz - d / 2, hx + w / 2, hz + d / 2, y, 3.6 + (i % 3) * 0.8, i % 2 ? MAT.ADOBE : MAT.ADOBE_DARK, side, { doorW: 2, doorH: 2.4, roofMat: MAT.ADOBE_DARK });
     const [ox, oz] = sideOffset(side, 1.4);
     if (i % 2 === 0) box(W, door.x + ox * 1.1, y + 2.8, door.z + oz * 1.1, side === 'e' || side === 'w' ? 3 : 3.4, 0.15, side === 'e' || side === 'w' ? 3.4 : 3, [MAT.CLOTH, MAT.CLOTH2, MAT.CLOTH3][i % 3], { solid: false });
@@ -67,7 +75,7 @@ function house(W, style, hx, hz, w, d, y, side, i) {
     return door;
   }
   // prefab (Korrun): insulated walls, a warm lamp at every door
-  const door = building(W, hx - w / 2, hz - d / 2, hx + w / 2, hz + d / 2, y, 3.8 + (i % 2) * 0.6, i % 2 ? MAT.METAL : MAT.CONCRETE, side, { doorW: 2, doorH: 2.5, roofMat: MAT.METAL_DARK });
+  const door = packBuilding(W, prefabSkin(i), hx - w / 2, hz - d / 2, hx + w / 2, hz + d / 2, y, side, { mat: i % 2 ? MAT.METAL : MAT.CONCRETE, roofMat: MAT.METAL_DARK });
   const [ox, oz] = sideOffset(side, 1.6);
   lamp(W, door.x + ox * 1.6 + (side === 'n' || side === 's' ? 2 : 0), door.z + oz * 1.6 + (side === 'e' || side === 'w' ? 2 : 0), y, 3, 6, 'warm');
   return door;

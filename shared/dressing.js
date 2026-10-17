@@ -47,6 +47,22 @@ const FOOT = {
   MK_Prop_PipeHolder: [-2.06, -0.58, 2.05, 0.58, 0.94],
   MK_Column_Pipes: [-0.44, -0.44, 0.44, 0.44, 5],
   specimen: [-0.8, -0.8, 0.8, 0.8, 2.8],
+  // Kenney Space Kit (origins sit off-centre) and KayKit Space Base Bits (tiny scale: placed at s 4)
+  KN_hangar_largeA: [1, 0, 3, 3, 1],
+  KN_hangar_roundA: [0.36, 0.08, 3.64, 2.92, 1.5],
+  KN_hangar_smallA: [1, 0.5, 3, 2.5, 1],
+  KN_machine_generatorLarge: [1.5, 0.85, 2.5, 2.15, 0.68],
+  KN_satelliteDish_large: [1.58, 1.03, 2.42, 1.77, 0.81],
+  KK_windturbine_tall: [-0.83, -0.55, 0.83, 0.45, 3],
+  KK_windturbine_low: [-0.57, -0.65, 0.57, 0.65, 1.46],
+  KK_cargodepot_A: [-1.07, -1.07, 1, 1.01, 1.12],
+  KK_cargodepot_B: [-1.07, -1.11, 1.01, 1.07, 1.02],
+  KK_containers_A: [-0.25, -0.25, 0.25, 0.25, 0.2],
+  KK_containers_B: [-0.25, -0.25, 0.25, 0.25, 0.2],
+  KK_containers_C: [-0.25, -0.25, 0.25, 0.25, 0.2],
+  KK_containers_D: [-0.25, -0.25, 0.25, 0.25, 0.2],
+  KK_drill_structure: [-0.88, -0.88, 0.88, 0.88, 2],
+  KK_solarpanel: [-0.45, -0.23, 0.45, 0.23, 0.37],
 };
 
 // the footprint turned by yaw (quarter turns), scaled and moved to (x, z)
@@ -134,8 +150,8 @@ function colony(W, cx, cz, out, n, set) {
   for (let k = 0; k < 40 && placed < n; k++) {
     const ring = 26 + (k % 3) * 9, across = ((k * 7) % 11 - 5) * 7.5;
     const x = +(cx + ux * ring + px * across).toFixed(1), z = +(cz + uz * ring + pz * across).toFixed(1);
-    const [name, extra] = set[placed % set.length];
-    if (place(W, name, x, z, yawOut + Math.PI, 1, undefined, { with: extra ? [extra] : [] })) placed++;
+    const [name, extra, sc = 1] = set[placed % set.length];
+    if (place(W, name, x, z, yawOut + Math.PI, sc, undefined, { with: extra ? [extra] : [] })) placed++;
   }
   // solar fields and parked rovers fill the gaps
   for (let k = 0, m = 0; k < 30 && m < 4; k++) {
@@ -146,6 +162,17 @@ function colony(W, cx, cz, out, n, set) {
     const x = cx + ux * (14 + (k % 3) * 5) + px * (((k * 5) % 9) - 4) * 6, z = cz + uz * (14 + (k % 3) * 5) + pz * (((k * 5) % 9) - 4) * 6;
     if (place(W, ['SK_Rover_1', 'SK_Rover_2', 'SK_Rover_Round'][m % 3], +x.toFixed(1), +z.toFixed(1), yawOut + Q * (k % 2), 0.55)) m++;
   }
+}
+
+// a few of `items` ([name, scale]) scattered on a ring around (cx, cz), wherever they fit
+function scatter(W, cx, cz, r0, r1, n, items, seed) {
+  let placed = 0;
+  for (let k = 0; k < n * 14 && placed < n; k++) {
+    const a = (k * 2.39996 + seed) % (Math.PI * 2), r = r0 + ((k * 7 + seed) % 11) / 10 * (r1 - r0);
+    const [name, sc] = items[placed % items.length];
+    if (place(W, name, +(cx + Math.cos(a) * r).toFixed(1), +(cz + Math.sin(a) * r).toFixed(1), Math.round(a / Q) * Q, sc)) placed++;
+  }
+  return placed;
 }
 
 // a loader mech standing idle beside a building
@@ -189,7 +216,8 @@ function furnish(W, y, items) { for (const [name, spots, s = 1] of items) firstF
 // ------------------------------------------------------------------ Dusk Varo
 
 extendLayout('duskvaro', (W) => {
-  colony(W, -250, 127, [-1, 0.9], 5, [['SK_Base_Large'], ['SK_House_Single', 'SK_Roof_Radar'], ['SK_House_Long', 'SK_Roof_Antenna'], ['SK_GeodesicDome'], ['SK_House_Cylinder']]);
+  colony(W, -250, 127, [-1, 0.9], 6, [['SK_Base_Large'], ['SK_House_Single', 'SK_Roof_Radar'], ['KN_hangar_roundA', null, 5], ['SK_House_Long', 'SK_Roof_Antenna'], ['SK_GeodesicDome'], ['SK_House_Cylinder']]);
+  scatter(W, -250, 127, 18, 30, 2, [['KN_machine_generatorLarge', 3], ['KN_satelliteDish_large', 4]], 1.3);
   mech(W, 0, [[-208.5, 4, Math.PI], [-191.5, 4, Math.PI], [-210, 8, Math.PI]]);
   mech(W, 1, [[-272, 124, Q], [-248, 150, Math.PI], [-276, 104, Q]]);
   // Garrison Seven (its authored coordinates + DUSK_SHIFT)
@@ -209,7 +237,7 @@ extendLayout('duskvaro', (W) => {
 // ------------------------------------------------------------------ Thessaly Mire
 
 extendLayout('thessaly', (W) => {
-  colony(W, -196, -77, [-0.9, -1], 4, [['SK_House_Single', 'SK_Roof_Antenna'], ['SK_House_Cylinder'], ['SK_House_Long', 'SK_Roof_VentL'], ['SK_Building_L']]);
+  colony(W, -196, -77, [-0.9, -1], 5, [['SK_House_Single', 'SK_Roof_Antenna'], ['KN_hangar_largeA', null, 5], ['SK_House_Cylinder'], ['SK_House_Long', 'SK_Roof_VentL'], ['SK_Building_L']]);
   mech(W, 1, [[-167.5, 59, Q], [-167.5, 73, Q], [-166, 76, Q]]);
   compoundDressing(W, 5);
 });
@@ -217,7 +245,10 @@ extendLayout('thessaly', (W) => {
 // ------------------------------------------------------------------ Korrun Deep
 
 extendLayout('korrun', (W) => {
-  colony(W, -224, 119, [-1, 1], 5, [['SK_GeodesicDome'], ['SK_Base_Large'], ['SK_House_Cylinder'], ['SK_House_Single', 'SK_Roof_Radar'], ['SK_GeodesicDome']]);
+  colony(W, -224, 119, [-1, 1], 6, [['SK_GeodesicDome'], ['KK_cargodepot_A', null, 4], ['SK_Base_Large'], ['KK_drill_structure', null, 4], ['SK_House_Cylinder'], ['KK_cargodepot_B', null, 4]]);
+  // Rime Hold runs on wind: turbines on the rise around town, cargo stacked by the haul road
+  scatter(W, -130, 70, 62, 84, 4, [['KK_windturbine_tall', 4], ['KK_windturbine_low', 4]], 0.4);
+  scatter(W, -224, 119, 16, 26, 4, [['KK_containers_A', 4], ['KK_containers_C', 4], ['KK_containers_B', 4], ['KK_containers_D', 4]], 2.1);
   mech(W, 0, [[-168, 121, 0], [-152, 121, 0], [-170, 118, 0]]);
   const gS = 13, dx = W.siteShift ? W.siteShift.dx : 180;
   compoundDressing(W, gS);

@@ -4,8 +4,76 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mat, glowMat } from './models.js';
 import { textures, repeated } from './textures.js';
+import { Assets } from './assets.js';
+import { kitModel } from './props.js';
+
+// The Wayfarer wears the Challenger hull from Quaternius's Ultimate Spaceships Pack (CC0) when the
+// models are loaded: raised on landing legs, with the crew's lit hatch, boarding ramp and engine glow
+// fitted to the back of the hull. Same footprint and API as the procedural ship below.
+function makePackWayfarer() {
+  const g = new THREE.Group();
+  const lift = 0.55;
+  const hull = kitModel('SHIP_Challenger', 11.2, true);
+  if (!hull) return null;
+  hull.position.y = lift;
+  g.add(hull);
+  g.updateMatrixWorld(true);
+  // the back of the hull at a given height band and across a given width, from the mesh itself
+  const pts = [];
+  hull.traverse((o) => {
+    if (!o.isMesh) return;
+    const p = o.geometry.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i += 1) pts.push(v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld).clone());
+  });
+  const rearAt = (x0, x1, y0, y1) => pts.reduce((m, p) => (p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1 ? Math.max(m, p.z) : m), -1e9);
+  const dark = mat(0x2c2e34, { metal: 0.55, rough: 0.6 }), panel = mat(0x7a7468, { metal: 0.5, rough: 0.7 });
+  const add = (geo, m, x, y, z, rx = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.x = rx; o.castShadow = true; g.add(o); return o; };
+  // landing legs
+  for (const [x, z] of [[-2.2, 2.8], [2.2, 2.8], [0, -3.2]]) {
+    add(new THREE.CylinderGeometry(0.13, 0.15, lift + 0.3, 6), dark, x, (lift + 0.3) / 2, z);
+    add(new THREE.CylinderGeometry(0.45, 0.5, 0.1, 10), dark, x, 0.05, z);
+  }
+  // lit hatch and ramp, hinged at the bottom of the hull's back face
+  const rz = rearAt(-1.1, 1.1, lift + 0.2, lift + 2.2);
+  const hz = rz > -1e8 ? rz : 5.2;
+  add(new THREE.BoxGeometry(2.0, 1.7, 0.1), dark, 0, lift + 1.0, hz + 0.02).castShadow = false;
+  add(new THREE.BoxGeometry(1.6, 1.4, 0.1), glowMat(0xffc890, 0.35), 0, lift + 0.95, hz + 0.06).castShadow = false;
+  const rampPivot = new THREE.Group();
+  const hinge = lift + 0.2;
+  rampPivot.position.set(0, hinge, hz + 0.05);
+  g.add(rampPivot);
+  const rampLen = 2.2;
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, rampLen), panel);
+  ramp.position.set(0, 0, rampLen / 2);
+  ramp.castShadow = true; ramp.receiveShadow = true;
+  rampPivot.add(ramp);
+  for (let i = 0; i < 4; i++) {
+    const rung = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.08), dark);
+    rung.position.set(0, 0.08, 0.35 + i * 0.5);
+    rampPivot.add(rung);
+  }
+  const lowered = Math.asin(Math.min(0.95, hinge / rampLen));
+  rampPivot.rotation.x = lowered;
+  const light = new THREE.PointLight(0xffd0a0, 6, 7, 1.6);
+  light.position.set(0, 2, hz + 1);
+  g.add(light);
+  // engine glow on the back face either side of the hatch
+  const engines = [];
+  for (const side of [-1, 1]) {
+    const ez = rearAt(side < 0 ? -1.5 : 1.1, side < 0 ? -1.1 : 1.5, lift + 1.4, lift + 2.0);
+    const e = add(new THREE.CircleGeometry(0.26, 14), glowMat(0x6ad8ff, 0.8), side * 1.3, lift + 1.7, (ez > -1e8 ? ez : hz) + 0.04);
+    e.castShadow = false;
+    engines.push(e);
+  }
+  return {
+    group: g,
+    setRamp(t) { rampPivot.rotation.x = -Math.PI / 2 + (lowered + Math.PI / 2) * t; light.intensity = 6 * t; },
+    setThrust(v) { for (const e of engines) { e.material.color.setHex(0x6ad8ff).multiplyScalar(0.8 + v * 4); e.scale.setScalar(1 + v * 0.25); } },
+  };
+}
 
 export function makeWayfarer() {
+  if (Assets.ready) { const w = makePackWayfarer(); if (w) return w; }
   const T = textures();
   const g = new THREE.Group();
   const hullTex = repeated(T.metal, 1.4);

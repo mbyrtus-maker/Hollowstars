@@ -252,8 +252,10 @@ This ties all the systems together: missions weaken the regime, ownership create
    - Characters, weapons and props now come from Quaternius's CC0 packs, slimmed by `tools/assets/build_assets.py` into six .glb files (about 11 MB) that load next to the page.
    - Every pack character is driven through the game's own rig, so class, advanced-class and branch looks keep working unchanged, and the procedural models remain the fallback.
    - Set dressing is authored in `shared/dressing.js` and placed only where it can't block a patrol, worker, traffic route or point of interest.
+   - The Wayfarer (Ultimate Spaceships "Challenger"), Khet's outer houses (recoloured Ultimate Textured Buildings) and Rime Hold (KayKit base modules) are now pack models; `shared/packs.js` keeps their collision as boxes so the simulation is unchanged.
    - Next steps:
-     - Swap the procedural Wayfarer, speeders and buildings for pack or commissioned models once a style is locked.
+     - Speeder bikes: no free pack has a hover bike in this style; keep the procedural bike or commission one.
+     - Thessaly's stilt huts: Quaternius Medieval Village MegaKit (timber walls, floors, roofs) once it's in.
      - Add per-planet colonist and droid variety.
      - Stream assets per planet instead of loading everything up front.
 

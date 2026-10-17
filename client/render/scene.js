@@ -604,6 +604,12 @@ const TEX_CLASS = {
   [MAT.CLOTH2]: ['cloth', 1.6, 0], [MAT.CLOTH3]: ['cloth', 1.6, 0], [MAT.FUEL]: ['metal', 3, 0.05],
 };
 
+// houses built from boxes but drawn as pack models (shared/packs.js), if every model they need loaded
+function packSkinsReady(world) {
+  if (world._skinsReady === undefined) world._skinsReady = Assets.ready && world.decor.every((d) => !d.fit || Assets.has(d.name));
+  return world._skinsReady;
+}
+
 function buildStatics(world, T) {
   const group = new THREE.Group();
   const byClass = new Map();
@@ -611,8 +617,10 @@ function buildStatics(world, T) {
   const c = new THREE.Color();
   const batch = new ModelBatch();
   const CRATES = ['Prop_Crate', 'Prop_Crate_Large', 'Prop_Crate_Tarp', 'MK_Prop_Crate3', 'MK_Prop_Crate4', 'Prop_Crate_Tarp_Large'];
+  const skinned = packSkinsReady(world);
   for (const b of world.boxes) {
     if (!b.render) continue;
+    if (b.skin && skinned) continue; // drawn by its pack model (makeDecor)
     if (b.tag === 'door' || b.tag === 'tank' || b.tag === 'mast' || b.mat === MAT.ROCK) continue;
     const w = b.maxX - b.minX, h = b.maxY - b.minY, d = b.maxZ - b.minZ;
     const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2, cz = (b.minZ + b.maxZ) / 2;
@@ -711,6 +719,7 @@ function makeDecor(world, look) {
     if (d.type === 'model') {
       // pack models placed by the world builder: static ones are batched, animated ones get a mixer
       if (!Assets.ready) continue;
+      if (d.fit) { if (packSkinsReady(world)) batch.fitXZ(d.name, d.x, d.y, d.z, d.fit[0], d.fit[1], d.yaw || 0); continue; }
       if (d.anim) {
         const a = animatedProp(d.name, d.anim);
         if (a) { a.object.position.set(d.x, d.y, d.z); a.object.rotation.y = d.yaw || 0; a.object.scale.setScalar(d.s || 1); g.add(a.object); anims.push(a.mixer); }

@@ -94,7 +94,7 @@ A 4-player co-op space-opera action game for the browser. This is the first play
 
   Ghost bonuses pay extra for finishing without an alarm. Leaving a world in the middle of a job that happens only there abandons that job.
 - **Economy.** Earn credits from missions and bounties. Four merchants across the three worlds sell consumables and permanent upgrades. Progress is saved per callsign on the server, or in your browser when playing solo.
-- **Characters, guns and set dressing from CC0 model packs.** People are rigged Quaternius base bodies animated with the Universal Animation Library (upper and lower body blend, so you can run while aiming), dressed per class, advanced class and branch. Guards carry pack rifles, security cameras are eye-drones, two garrison patrols per site are walking droids, and spaceports have colony prefabs, rovers, loader mechs and Space Kit trader ships. Korrun's haulers are wheeled rovers and Cryo-Vault Sigma keeps specimens on ice. If the models can't load (for example when opening the page from disk), the game falls back to its procedural models.
+- **Characters, guns and set dressing from CC0 model packs.** People are rigged Quaternius base bodies animated with the Universal Animation Library (upper and lower body blend, so you can run while aiming), dressed per class, advanced class and branch. Guards carry pack rifles, security cameras are eye-drones, two garrison patrols per site are walking droids, and spaceports have colony prefabs, hangars, rovers, loader mechs and Space Kit trader ships. The Wayfarer is the Challenger hull from the Ultimate Spaceships Pack, Khet's outer houses are Quaternius townhouses recoloured as adobe, Rime Hold is built from KayKit base modules with wind turbines, Korrun's haulers are KayKit space trucks, and Cryo-Vault Sigma keeps specimens on ice. If the models can't load (for example when opening the page from disk), the game falls back to its procedural models.
 - **Camera.** Third person, or first person with a weapon viewmodel (V). There's also a compass, objective waypoints, teammate tags, pings, chat and a revive system.
 
 ## Play on GitHub Pages (no server needed)
@@ -176,11 +176,12 @@ shared/            Runs on both the server and the browser
   sim/missions.js  Multi-part mission definitions and logic
   sim/classes.js   Class loadouts, Q/F/X abilities, Warden hunter squads
   dressing.js      Pack models placed around spaceports, workshops and Concordance sites, kept clear of every path
+  packs.js         Houses built from boxes (collision) but drawn as pack models
 server/server.js   HTTP + WebSocket server, rooms of 4, profile persistence, peer-to-peer signaling relay
 client/p2p.js      Serverless host/join crews over WebRTC
 vendor/trystero/   WebRTC matchmaking library (MIT), vendored so the build needs only npm's three, ws, esbuild
 client/            Three.js renderer, procedural models and animation, effects, HUD, synthesized audio
-client/assets/     Slimmed .glb packs (about 11 MB) and CREDITS.md
+client/assets/     Slimmed .glb packs (about 13 MB) and CREDITS.md
 client/render/     assets.js loader, assethumanoid.js (pack characters on the game's rig), weapons.js, props.js, kitcreature.js
 client/viewer.js   Model and animation viewer: open the game with ?viewer=1 (&set=crew|adv|town|models&state=aim|run|...)
 tools/             Build script, simulation soak test, end-to-end mission test
@@ -200,4 +201,4 @@ node tools/theft-test.js      # the ramp menu, personal speeders, theft, witness
 node tools/soak.js 240 korrun # 4 scripted bots for 4 minutes on a planet; reports tick cost and errors
 ```
 
-Terrain, buildings, vehicles and effects are procedural geometry with generated textures, and all audio is synthesized. Characters, weapons and props come from Quaternius's CC0 packs (public domain, no attribution required, credited anyway in [client/assets/CREDITS.md](client/assets/CREDITS.md)). To rebuild them from the original zips, unzip the packs into one folder and run `python3 tools/assets/build_assets.py <folder>`.
+Terrain, buildings, vehicles and effects are procedural geometry with generated textures, and all audio is synthesized. Characters, weapons, props, the Wayfarer and many buildings come from CC0 packs by Quaternius, Kenney and Kay Lousberg (public domain, no attribution required, credited anyway in [client/assets/CREDITS.md](client/assets/CREDITS.md)). To rebuild them from the original zips, unzip the packs into one folder and run `python3 tools/assets/build_assets.py <folder>`.

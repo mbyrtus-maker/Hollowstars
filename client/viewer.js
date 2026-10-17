@@ -21,10 +21,26 @@ export async function runViewer(canvas, params) {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 30), new THREE.MeshStandardMaterial({ color: 0x8a6448, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const set = (params.get('set') || 'crew');
+  if (set === 'one') {
+    // one model at a set length, orbited: &name=...&len=12&ang=0.8&h=4
+    const m = Assets.instance(params.get('name'));
+    const box = new THREE.Box3().setFromObject(m), sz = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    const len = +(params.get('len') || 12), k = len / Math.max(sz.x, sz.z);
+    const g = new THREE.Group(); g.add(m); m.position.set(-c.x, -box.min.y, -c.z); g.scale.setScalar(k); scene.add(g);
+    m.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 500);
+    const a = +(params.get('ang') || 0.8), r = len * 1.35;
+    cam.position.set(Math.sin(a) * r, +(params.get('h') || len * 0.35), -Math.cos(a) * r); cam.lookAt(0, sz.y * k * 0.4, 0);
+    window.__viewer = { scene, Assets };
+    const loop = () => { requestAnimationFrame(loop); renderer.render(scene, cam); };
+    loop();
+    return;
+  }
   if (set === 'models') {
     // every named model from one pack prefix, laid out on a grid with its bounds
     const pre = params.get('pre') || 'Gun';
-    const names = [...Assets.models.keys()].filter((n) => n.startsWith(pre));
+    const only = params.get('only');
+    const names = only ? only.split(',') : [...Assets.models.keys()].filter((n) => n.startsWith(pre));
     const cols = Math.ceil(Math.sqrt(names.length * 2));
     const cell = +(params.get('cell') || 1.2);
     names.forEach((n, i) => {
@@ -41,6 +57,11 @@ export async function runViewer(canvas, params) {
     });
     const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
     cam.position.set(0, cols * cell * 0.45, -cols * cell * 1.1); cam.lookAt(0, cols * cell * 0.35, 0);
+    if (params.get('ang') != null) {
+      // orbit the grid from a three-quarter view
+      const a = +params.get('ang'), r = cols * cell * 1.3 + 1, h = +(params.get('h') || cols * cell * 0.6);
+      cam.position.set(Math.sin(a) * r, h, -Math.cos(a) * r); cam.lookAt(0, cell * 0.4, 0);
+    }
     window.__viewer = { scene, Assets };
     const loop = () => { requestAnimationFrame(loop); renderer.render(scene, cam); };
     loop();

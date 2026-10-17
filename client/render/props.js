@@ -36,6 +36,19 @@ export class ModelBatch {
     return this.addMatrix(name, place.multiply(shape));
   }
 
+  // stretch a model over a w x d footprint (world axes), keeping its proportions in height
+  fitXZ(name, cx, minY, cz, w, d, yaw = 0) {
+    const b = Assets.bounds(name);
+    if (!b) return false;
+    const size = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+    const turned = Math.abs(Math.sin(yaw)) > 0.7;
+    const sx = (turned ? d : w) / Math.max(size.x, 1e-3), sz = (turned ? w : d) / Math.max(size.z, 1e-3), sy = (sx + sz) / 2;
+    e.set(0, yaw, 0); q.setFromEuler(e);
+    const place = new THREE.Matrix4().compose(v.set(cx, minY, cz), q, s.set(1, 1, 1));
+    const shape = new THREE.Matrix4().makeScale(sx, sy, sz).multiply(new THREE.Matrix4().makeTranslation(-c.x, -b.min.y, -c.z));
+    return this.addMatrix(name, place.multiply(shape));
+  }
+
   build() {
     const g = new THREE.Group();
     for (const [name, mats] of this.items) {

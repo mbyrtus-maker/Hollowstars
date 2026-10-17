@@ -1,7 +1,8 @@
 // Layouts for the off-world planets. Built with the same kit as Dusk Varo.
 import { box, addBox, building, addDoor, lamp, crate, placeShip, registerLayout, terrainHeight, roadDistance, markWorld, shiftWorld, SITE_SHIFT, MAT } from './world.js';
 import { mulberry32, dist2 } from './math.js';
-import './districts.js';
+import { prefabSkin } from './districts.js';
+import { packBuilding } from './packs.js';
 import './dressing.js';
 
 // Scatter solid props (trees, ice spires) across open ground, clear of settlements, sites and roads.
@@ -197,7 +198,10 @@ registerLayout('korrun', (W) => {
   let thaw = null;
   huts.forEach(([hx, hz, w, d], i) => {
     const side = faceSide(VX, VZ, hx, hz);
-    const door = building(W, hx - w / 2, hz - d / 2, hx + w / 2, hz + d / 2, gV, 3.8 + (i % 2) * 0.6, i % 2 ? MAT.METAL : MAT.CONCRETE, side, { doorW: i === 0 ? 2.8 : 2, doorH: 2.5, roofMat: MAT.METAL_DARK });
+    // the Thaw (i = 0) is entered, so it stays a procedural hut; the rest are KayKit base modules
+    const door = i === 0
+      ? building(W, hx - w / 2, hz - d / 2, hx + w / 2, hz + d / 2, gV, 3.8 + (i % 2) * 0.6, i % 2 ? MAT.METAL : MAT.CONCRETE, side, { doorW: i === 0 ? 2.8 : 2, doorH: 2.5, roofMat: MAT.METAL_DARK })
+      : packBuilding(W, prefabSkin(i + 2), hx - w / 2, hz - d / 2, hx + w / 2, hz + d / 2, gV, side, { mat: i % 2 ? MAT.METAL : MAT.CONCRETE, roofMat: MAT.METAL_DARK });
     const [ox, oz] = sideOffset(side, 1.6);
     W.civSpots.push({ x: door.x + ox, z: door.z + oz, act: 'idle', home: true });
     lamp(W, door.x + ox * 1.6 + (side === 'n' || side === 's' ? 2 : 0), door.z + oz * 1.6 + (side === 'e' || side === 'w' ? 2 : 0), gV, 3, 6, 'warm');
