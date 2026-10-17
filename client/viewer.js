@@ -90,9 +90,9 @@ export async function runViewer(canvas, params) {
   if (params.get('focus') != null) {
     // close-up on two neighbours from three quarters
     const i = +params.get('focus'), x = (i - (lineup.length - 1) / 2) * 1.4 + 0.7;
-    const ang = +(params.get('ang') || 0.5);
-    cam.position.set(x + Math.sin(ang) * 3.6, 1.35, -Math.cos(ang) * 3.6);
-    cam.lookAt(x, 1.0, 0);
+    const ang = +(params.get('ang') || 0.5), dist = +(params.get('dist') || 3.6), ly = +(params.get('ly') || 1.0);
+    cam.position.set(x + Math.sin(ang) * dist, ly + 0.35, -Math.cos(ang) * dist);
+    cam.lookAt(x, ly, 0);
   }
   const swingEvery = 0.8;
   let t = 0, last = performance.now(), swing = 0, st = 0;

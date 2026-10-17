@@ -106,6 +106,7 @@ export class Humanoid {
   part(bone, geo, mat, color, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
     this.parts.push({ bone, geo, mat, color, x, y, z, rx, ry, rz });
   }
+  crewMark(color) { this.part(this.head, new THREE.TorusGeometry(0.066, 0.02, 6, 14).rotateX(Math.PI / 2), 'cloth', color, 0, 0.035, 0); }
   glowPart(bone, geo, color, x, y, z) {
     const m = new THREE.Mesh(geo, glowMat(color, 1.6));
     m.position.set(x, y, z);
@@ -221,8 +222,8 @@ export class Humanoid {
         sniper: { top: 0x5a5a44, legs: 0x48483a, boots: 0x2a261e, gloves: 0x2e2a22 },
       }[cls];
       this.body(o, rng, { skin, hair: hairC, ...looks, forearm: cls === 'spy' || cls === 'soldier' ? looks.top : undefined, forearmMat: cls === 'spy' || cls === 'soldier' ? 'cloth' : undefined });
-      // crew colour: a scarf and a stripe so friends are readable at a distance
-      this.part(H, new THREE.TorusGeometry(0.066, 0.02, 6, 14).rotateX(Math.PI / 2), 'cloth', accent, 0, 0.035, 0);
+      // crew colour: a scarf (an armband on pack characters) and a stripe so friends are readable at a distance
+      this.crewMark(accent);
       this.part(S, rbox(0.036, 0.3, 0.012), 'cloth', accent, 0.09, 0.33, -0.116);
       this.part(P, new THREE.TorusGeometry(0.135, 0.02, 6, 16).rotateX(Math.PI / 2).scale(1, 1, 0.75), 'leather', 0x2a1e16, 0, 0.06, 0);
       if (cls === 'warden') {

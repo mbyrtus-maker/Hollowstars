@@ -6,6 +6,7 @@
 // skin by body region.
 import * as THREE from 'three';
 import { Humanoid } from './humanoid.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Assets } from './assets.js';
 import { clamp, lerp, mulberry32, smoothstep } from '../../shared/math.js';
 
@@ -171,6 +172,43 @@ export class AssetHumanoid extends Humanoid {
     this.bodyMesh.material = mat;
   }
 
+  // ---------------- fitting the procedural dresser's pieces to the pack head and arms
+  // crew colour as an armband on the left upper arm instead of a ring around the neck
+  crewMark(color) {
+    this.part(this.shL, new THREE.CylinderGeometry(0.06, 0.057, 0.075, 16, 1, true), 'cloth', color, 0, -0.1, 0);
+  }
+
+  part(bone, geo, mat, color, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
+    // hoods and caps were shaped for the procedural head; the pack head is taller with the face set
+    // further back, so they would sit over the eyes. Lift them, open the face and give them room.
+    if (bone === this.head && geo.type === 'SphereGeometry' && geo.parameters.thetaLength >= Math.PI * 0.49) {
+      const r = geo.parameters.radius;
+      if (geo.parameters.thetaLength > Math.PI * 0.55) {
+        // a hood: a crown, then sides and back that fall to the collar with the face left open
+        const face = 1.05; // half-width of the opening, radians around the head
+        const crown = new THREE.SphereGeometry(r, 14, 4, 0, Math.PI * 2, 0, Math.PI * 0.3);
+        const sides = new THREE.SphereGeometry(r, 14, 6, Math.PI * 1.5 + face, Math.PI * 2 - face * 2, Math.PI * 0.3, Math.PI * 0.46);
+        const outer = mergeGeometries([crown.toNonIndexed(), sides.toNonIndexed()]).scale(1.16, 1.16, 1.18);
+        // and a lining facing inward, so the inside of the hood isn't see-through around the face
+        const inner = outer.clone().scale(0.97, 0.97, 0.97);
+        const ip = inner.attributes.position, iu = inner.attributes.uv;
+        for (let i = 0; i < ip.count; i += 3) {
+          for (const att of [ip, iu]) {
+            if (!att) continue;
+            for (let k = 0; k < att.itemSize; k++) { const t = att.array[(i + 1) * att.itemSize + k]; att.array[(i + 1) * att.itemSize + k] = att.array[(i + 2) * att.itemSize + k]; att.array[(i + 2) * att.itemSize + k] = t; }
+          }
+        }
+        geo = mergeGeometries([outer, inner]);
+        geo.computeVertexNormals();
+        y += 0.04; z += 0.03; rx = -0.12;
+      } else {
+        geo = geo.clone().scale(1.14, 1.12, 1.14);
+        y += 0.05; z += 0.012; rx += -0.12;
+      }
+    }
+    super.part(bone, geo, mat, color, x, y, z, rx, ry, rz);
+  }
+
   // ---------------- hair from the pack, rebound onto this character's skeleton
   hair(rng, color, style) {
     if (style === 'none') return;
@@ -245,6 +283,69 @@ export class AssetHumanoid extends Humanoid {
     b.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(v2.normalize(), angle));
   }
 
+  // ---------------- two-handed long guns
+  // The animation library only has pistol and sword clips, so rifles are held procedurally: the right
+  // hand is placed at the grip in front of the shoulder and turned so the barrel runs along the aim,
+  // then the left hand reaches for the fore-end. Both arms are solved with two-bone IK.
+  setWorldQuat(b, q) {
+    if (!this.touched.has(b)) this.touched.set(b, this.rest.get(b) || b.quaternion.clone());
+    b.parent.getWorldQuaternion(q1);
+    b.quaternion.copy(q1.invert().multiply(q));
+    b.updateMatrixWorld(true);
+  }
+  // turn bone b (world space) so the direction `from` comes to point along `to`
+  swing(b, from, to) {
+    b.getWorldQuaternion(q2);
+    const d = new THREE.Quaternion().setFromUnitVectors(from.clone().normalize(), to.clone().normalize());
+    this.setWorldQuat(b, d.multiply(q2));
+  }
+  reach(side, target, pole) {
+    const a = this.ab['upperarm_' + side], b = this.ab['lowerarm_' + side], c = this.ab['hand_' + side];
+    const A = a.getWorldPosition(new THREE.Vector3()), B = b.getWorldPosition(new THREE.Vector3()), C = c.getWorldPosition(new THREE.Vector3());
+    const l1 = A.distanceTo(B), l2 = B.distanceTo(C);
+    const toT = target.clone().sub(A);
+    const d = clamp(toT.length(), Math.abs(l1 - l2) + 0.01, l1 + l2 - 0.002);
+    const dir = toT.normalize();
+    const pv = pole.clone().sub(A); pv.addScaledVector(dir, -pv.dot(dir)).normalize();
+    const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+    const elbow = A.clone().addScaledVector(dir, along).addScaledVector(pv, h);
+    this.swing(a, B.clone().sub(A), elbow.clone().sub(A));
+    const B2 = b.getWorldPosition(new THREE.Vector3()), C2 = c.getWorldPosition(new THREE.Vector3());
+    this.swing(b, C2.clone().sub(B2), A.clone().addScaledVector(dir, d).sub(B2));
+  }
+  holdRifle(s, pitch, low, kick) {
+    const gun = this.rifle;
+    if (!gun || !gun.userData.muzzle) return;
+    this.root.updateMatrixWorld(true);
+    this.root.getWorldQuaternion(q2);
+    const p = low ? -0.55 : pitch;
+    const fwd = new THREE.Vector3(0, Math.sin(p), -Math.cos(p)).applyQuaternion(q2);
+    const up = new THREE.Vector3(0, Math.cos(p), Math.sin(p)).applyQuaternion(q2);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q2);
+    const sh = this.ab.upperarm_r.getWorldPosition(new THREE.Vector3());
+    // grip: in front of the right shoulder for a shouldered aim, down by the hip at low ready
+    const grip = low
+      ? sh.clone().addScaledVector(fwd, 0.2).addScaledVector(up, -0.3).addScaledVector(right, -0.06)
+      : sh.clone().addScaledVector(fwd, 0.24 - kick * 0.05).addScaledVector(up, -0.11).addScaledVector(right, -0.09);
+    this.reach('r', grip, sh.clone().addScaledVector(right, 0.5).addScaledVector(up, -0.6).addScaledVector(fwd, -0.2));
+    // turn the hand so the barrel runs along the aim and the gun sits upright
+    const hand = this.ab.hand_r;
+    gun.updateMatrixWorld(true);
+    const at = gun.getWorldPosition(new THREE.Vector3()), muz = gun.userData.muzzle.getWorldPosition(new THREE.Vector3());
+    this.swing(hand, muz.clone().sub(at), fwd);
+    gun.updateMatrixWorld(true);
+    const gunUp = new THREE.Vector3(0, 1, 0).transformDirection(gun.matrixWorld);
+    const a1 = gunUp.clone().addScaledVector(fwd, -gunUp.dot(fwd)).normalize(), a2 = up.clone().addScaledVector(fwd, -up.dot(fwd)).normalize();
+    this.swing(hand, a1, a2);
+    // the off hand on the fore-end, elbow down and out to the left
+    gun.updateMatrixWorld(true);
+    const g0 = gun.getWorldPosition(new THREE.Vector3()), g1 = gun.userData.muzzle.getWorldPosition(new THREE.Vector3());
+    const len = g0.distanceTo(g1);
+    const fore = g0.clone().addScaledVector(fwd, clamp(len * 0.45, 0.2, 0.42)).addScaledVector(up, -0.035);
+    const shL = this.ab.upperarm_l.getWorldPosition(new THREE.Vector3());
+    this.reach('l', fore, shL.clone().addScaledVector(right, -0.35).addScaledVector(up, -0.7));
+  }
+
   update(dt, s, t) {
     for (const [b, q] of this.touched) b.quaternion.copy(q);
     if (s.drawn !== undefined && s.drawn !== this.drawn) this.setDrawn(s.drawn);
@@ -299,7 +400,7 @@ export class AssetHumanoid extends Humanoid {
     else if (armed && gun) {
       const firing = this.swingT < 0.25;
       if (s.lowReady) upper = 'Pistol_Idle_Loop', uts = 1;
-      else if (firing && this.swingNew) { upper = 'Pistol_Shoot'; uts = 1.6; uopts = { once: true, restart: true }; }
+      else if (firing && this.swingNew && !this.rifle) { upper = 'Pistol_Shoot'; uts = 1.6; uopts = { once: true, restart: true }; }
       else if (firing && this.layer.upper.name === 'Pistol_Shoot') upper = 'Pistol_Shoot', uts = 1.6;
       else upper = 'Pistol_Aim_Neutral', uts = 1;
     } else if (armed && weapon === 'blade') {
@@ -330,7 +431,9 @@ export class AssetHumanoid extends Humanoid {
       const flick = this.parryT < 0.3 ? Math.sin((this.parryT / 0.3) * Math.PI) : 0;
       this.turnBone('upperarm_r', RIGHT, 0.6 + flick * 0.4);
     }
-    if (armed && this.drawT < 0.25) this.turnBone('upperarm_r', RIGHT, -(1 - this.drawT / 0.25) * 0.6);
+    const longGun = armed && (weapon === 'blaster' || weapon === 'longlas') && this.rifle && this.drawT > 0.2 && !s.flee;
+    if (longGun) this.holdRifle(s, pitch, s.lowReady || (moving && sp > 5.4), Math.max(0, 1 - this.swingT / 0.12));
+    else if (armed && this.drawT < 0.25) this.turnBone('upperarm_r', RIGHT, -(1 - this.drawT / 0.25) * 0.6);
     // coats and capes trail the legs
     const go = clamp(sp / 3, 0, 1);
     const cs = this.coatSwing || 0;
