@@ -63,8 +63,10 @@ export const WEAPONS = {
   grenade: {
     damage: 130,
     radius: 7.5,
-    fuse: 2.2,
-    throwSpeed: 17,
+    fuse: 2.6,
+    noiseFuse: 3.0, // noisemakers need time to land before they start clattering
+    throwSpeed: 27, // m/s along the aim: a 30-40 m lob at a comfortable upward angle
+    throwLift: 4.5,
     noise: 75,
   },
 };

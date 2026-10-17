@@ -445,7 +445,7 @@ function frame() {
     if (act.vfire) fireSpeeder(aim);
     if (act.ping) S.transport.send({ t: 'ping', p: [aim.x, aim.y, aim.z] });
     if (act.grenade) {
-      const d = dirFromYawPitch(lp.yaw, lp.pitch + 0.12);
+      const d = dirFromYawPitch(lp.yaw, Math.min(1.2, lp.pitch + 0.22)); // lobbed, a little above the crosshair
       S.transport.send({ t: 'gren', o: [lp.body.x, lp.body.y + 1.6, lp.body.z], d: [d.x, d.y, d.z] });
     }
   }

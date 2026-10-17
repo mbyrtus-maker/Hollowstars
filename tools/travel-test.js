@@ -64,7 +64,9 @@ function fly(g, p, to) {
   g.handle('p1', { t: 'travel', to });
   check(!!g.travel, `launch for ${to} accepted`);
   run(g, 8);
-  check(g.planet === to && !p.aboard, `arrived on ${PLANETS[to].name}`);
+  check(g.planet === to && p.aboard, `${PLANETS[to].name}: the crew stays aboard while the ship lands`);
+  run(g, 4.5);
+  check(g.planet === to && !p.aboard, `arrived on ${PLANETS[to].name} and walked down the ramp`);
 }
 
 // ---------------------------------------------------------------- ship basics
@@ -92,6 +94,10 @@ function fly(g, p, to) {
   check(!!g.travel, 'ship: launches once all four... er, both crew are aboard');
   run(g, 8);
   check(g.planet === 'thessaly' && sent.some((m) => m.t === 'planet' && m.id === 'thessaly'), 'ship: clients are told about the new world');
+  check(p.aboard && q.aboard && g.pickInteract(p) === null, 'ship: nobody steps off or opens the nav console mid-landing');
+  run(g, 4.5);
+  const r2 = g.world.pois.ship;
+  check(!p.aboard && !q.aboard && Math.hypot(p.x - r2.x, p.z - r2.z) < 4, 'ship: the crew comes down the ramp after touchdown');
   const lancers = [...g.ents.values()].filter((e) => e.kind === K.LANCER || e.kind === K.OFFICER);
   check(lancers.length >= 8, `ship: Harvester Station Kappa is garrisoned (${lancers.length})`);
   check(!!contact(g, 'vessa') && [...g.ents.values()].some((e) => e.kind === K.MERCHANT && e.merchant === 'grell'), 'ship: Lowmarsh has Vessa and Grell');

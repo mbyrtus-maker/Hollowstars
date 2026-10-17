@@ -19,7 +19,7 @@ export class Travel {
   }
   newStar(anyDepth) { return { x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2, z: anyDepth ? Math.random() : 1, pz: 1 }; }
 
-  get busy() { return !!this.phase && this.phase !== 'arrive'; }
+  get busy() { return !!this.phase; }
 
   launch(from, to) {
     this.phase = 'launch';
@@ -71,8 +71,10 @@ export class Travel {
         ship.setRamp(smoothstep(3.0, 3.8, t));
       }
       if (t < 0.6) this.drawJump(dt);
-      if (t > 4) { this.phase = null; if (ship) { ship.group.position.copy(ship.base); ship.group.rotation.x = 0; ship.setRamp(1); ship.setThrust(0); } }
-      return false;
+      // watch the ship come down; the crew walks off once the ramp is down
+      if (ship) this.shipCam(camera, ship, 0.35 + t * 0.06, 22 - t * 1.5, 4 + Math.max(0, 3.2 - t) * 3);
+      if (t > 4.2 || !aboard) { this.phase = null; if (ship) { ship.group.position.copy(ship.base); ship.group.rotation.x = 0; ship.setRamp(1); ship.setThrust(0); } return false; }
+      return true;
     }
     if (aboard && ship) {
       this.orbit -= (input.mouse.dx || 0) * 0.003 * (input.sens || 1);

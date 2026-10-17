@@ -5,7 +5,8 @@ export const SHIP = {
   name: 'Wayfarer',
   model: 'Kestrel-class light freighter',
   seats: 4,
-  jumpTime: 7.5, // seconds from launch to touchdown
+  jumpTime: 7.5, // seconds from launch to arrival
+  landTime: 4.2, // seconds the crew stays aboard while the ship sets down
 };
 
 export const PLANETS = {

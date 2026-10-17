@@ -345,7 +345,7 @@ export class Game {
       case 'trade': if (alive) this.onTrade(p, String(msg.g || ''), msg.n | 0); break;
       case 'craft': if (alive) this.onCraft(p, String(msg.r || ''), msg.n | 0); break;
       case 'upg': if (alive) this.onUpgrade(p, String(msg.k || '')); break;
-      case 'disembark': if (p.aboard && !this.travel) this.disembark(p); break;
+      case 'disembark': if (p.aboard && !this.travel && !this.landing) this.disembark(p); break;
       case 'chat': {
         const m = String(msg.m || '').slice(0, 140).trim();
         if (m) this.event(['chat', p.name, m, p.color]);
@@ -454,7 +454,7 @@ export class Game {
     const o = this.validOrigin(p, m.o, 2.5);
     const s = WEAPONS.grenade.throwSpeed;
     const noisy = p.cls === 'spy';
-    this.spawn({ kind: K.GRENADE, x: o[0], y: o[1], z: o[2], vx: d[0] * s + p.vx * 0.4, vy: d[1] * s + 3.5, vz: d[2] * s + p.vz * 0.4, fuse: noisy ? 1.6 : WEAPONS.grenade.fuse, owner: p.id, hp: 1, maxHp: 1, r: 0.15, h: 0.2, noisemaker: noisy, a1: noisy ? 1 : 0 });
+    this.spawn({ kind: K.GRENADE, x: o[0], y: o[1], z: o[2], vx: d[0] * s + p.vx * 0.4, vy: d[1] * s + WEAPONS.grenade.throwLift, vz: d[2] * s + p.vz * 0.4, fuse: noisy ? WEAPONS.grenade.noiseFuse : WEAPONS.grenade.fuse, owner: p.id, hp: 1, maxHp: 1, r: 0.15, h: 0.2, noisemaker: noisy, a1: noisy ? 1 : 0 });
     this.event(['throw', p.id]);
   }
 
@@ -689,7 +689,7 @@ export class Game {
     const W = this.world, out = [];
     const add = (id, x, z, label, hold = 0, range = 2.4, y) => out.push({ id, x, z, label, hold, range, y });
     if (p.vehicle) { out.push({ id: 'veh:' + p.vehicle, x: p.x, z: p.z, label: 'Dismount', hold: 0, range: 99, force: true }); return out; }
-    if (p.aboard) { if (!this.travel) out.push({ id: 'nav', x: p.x, z: p.z, label: `Open the ${SHIP.name}'s nav console`, hold: 0, range: 99, force: true }); return out; }
+    if (p.aboard) { if (!this.travel && !this.landing) out.push({ id: 'nav', x: p.x, z: p.z, label: `Open the ${SHIP.name}'s nav console`, hold: 0, range: 99, force: true }); return out; }
     if (p.downed) return out;
     if (W.pois.board) add('board', W.pois.board.x, W.pois.board.z, 'Browse the job board');
     for (const n of W.nodes) {
@@ -697,7 +697,7 @@ export class Game {
       if ((this.nodeUntil.get(n.id) || 0) > this.time) continue;
       add('node:' + n.id, n.x, n.z, NODE_LABEL[n.kind], 2.2, 2.6);
     }
-    if (W.pois.ship && !this.travel) add('ship', W.pois.ship.x, W.pois.ship.z, `Board the ${SHIP.name}`, 0, 4.2);
+    if (W.pois.ship && !this.travel && !this.landing) add('ship', W.pois.ship.x, W.pois.ship.z, `Board the ${SHIP.name}`, 0, 4.2);
     for (const t of W.terminals) {
       if (dist2(p.x, p.z, t.x, t.z) > 4) continue;
       if (t.kind === 'security') add('term:' + t.id, t.x, t.z, this.alarm.active ? 'Slice security: kill the alarm' : 'Slice security: loop the cameras', 4);
@@ -877,7 +877,7 @@ export class Game {
     this.globalDirty = true;
   }
   startTravel(p, to) {
-    if (!p.aboard || this.travel) return;
+    if (!p.aboard || this.travel || this.landing) return;
     if (!PLANETS[to]) return;
     if (to === this.planet) { this.pnote(p, `You're already on ${PLANETS[to].name}.`, 'warn'); return; }
     const missing = this.players().filter((q) => !q.aboard);
@@ -911,15 +911,22 @@ export class Game {
     this.mkView = marketView(this.market());
     this.resetGarrison(this.mission && this.mission.status === 'active' && missionHome(this.mission.id) === to ? this.mission.id : null);
     for (const [cid] of this.clients) this.sendTo(cid, { t: 'planet', id: to });
-    const sp = this.world.pois.spawn;
-    this.players().forEach((p, i) => {
-      p.aboard = false; p.vehicle = null; p.use = null;
-      const a = i * 1.6;
-      this.teleport(p, sp.x + Math.cos(a) * 2, sp.y + 0.3, sp.z + Math.sin(a) * 2);
+    // The crew stays aboard while the Wayfarer sets down; they walk off once the ramp is open
+    const s = this.world.pois.shipBody;
+    this.players().forEach((p) => {
+      p.aboard = true; p.vehicle = null; p.use = null;
+      this.teleport(p, s.x, s.y + 3.05, s.z);
     });
+    this.landing = { at: this.time + SHIP.landTime, to };
     this.lastGlobal = '';
     this.globalDirty = true;
     this.rebuildSpatial();
+  }
+  // Touchdown: the ramp is down, everyone steps off
+  finishLanding() {
+    const to = this.landing.to;
+    this.landing = null;
+    for (const p of this.players()) if (p.aboard) this.disembark(p);
     this.note(`Arrived on ${PLANETS[to].name}. ${PLANETS[to].arrival}`, 'objective');
   }
 
@@ -972,6 +979,7 @@ export class Game {
   tick(dt = TICK_DT) {
     useWorld(this.world);
     if (this.travel && this.time >= this.travel.at) this.switchPlanet(this.travel.to);
+    if (this.landing && this.time >= this.landing.at) this.finishLanding();
     this.time += dt;
     this.tickN++;
     this.rebuildSpatial();

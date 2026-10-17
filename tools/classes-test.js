@@ -123,7 +123,7 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
   const e4 = guard(g, 'mess-b'); calm(e4); e4.ai.wait = 0;
   place(g, p, e4.x + 18, e4.z + 4);
   g.handle('p0', { t: 'gren', o: [e4.x + 6, e4.y + 1.5, e4.z], d: [0, -0.2, 0.0001] });
-  run(g, 2.2);
+  run(g, 3.6);
   check(e4.ai.state === 'investigate', `spy: a noisemaker draws a guard to investigate (${e4.ai.state})`);
 }
 
@@ -187,6 +187,21 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
   const b3 = fire(p.x + 3, p.z - 18);
   for (let i = 0; i < 12; i++) g.tick(TICK_DT);
   check(b3.team === 'enemy', 'blade: holstered, nothing is deflected');
+}
+
+// ---------------------------------------------------------------- throw range
+{
+  const { g, ps: [p] } = setup('soldier');
+  place(g, p, -160, 40);
+  g.rebuildSpatial();
+  const ox = p.x, oz = p.z;
+  // a charge lobbed 20 degrees up lands well downrange
+  const pitch = 0.35;
+  g.handle('p0', { t: 'gren', o: [p.x, p.y + 1.6, p.z], d: [0, Math.sin(pitch), -Math.cos(pitch)] });
+  const gr = [...g.ents.values()].find((e) => e.kind === K.GRENADE);
+  let landed = null;
+  for (let i = 0; i < 60 && g.ents.has(gr.id); i++) { g.tick(TICK_DT); if (!landed && gr.vy === 0 || (!landed && gr.y < groundAt(g.world, gr.x, gr.z, 60) + 0.4 && gr.vy < 0)) landed = Math.hypot(gr.x - ox, gr.z - oz); }
+  check(landed > 24, `grenade: a lob carries ${landed && landed.toFixed(1)} m before its first bounce`);
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll class checks passed');
