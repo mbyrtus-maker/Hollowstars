@@ -74,7 +74,11 @@ Six classes are chosen at startup, and each has a signature weapon and Q/F/X abi
 | Sniper | Phantom | Phase cloak shots, full-pierce overcharge |
 
 Planned:
-- A second advanced class per base class (for example a Warden Sentinel built around the Current instead of the blade).
+- **Branching class tree (next, not yet built).** After the first advanced class, each one splits into two paths. The player picks one and keeps going down it, unlocking more abilities as they level. Rough shape:
+  - Level 10: the base class becomes its advanced class (built).
+  - Later level (around 15): choose one of two branches. For example, a Guardian goes on as a shield-wall protector or as a blade duelist, and a Commando as a jump-jet assault trooper or a heavy-weapons specialist.
+  - Each branch then has its own run of abilities that unlock at set levels up to 20, possibly with the level cap raised to make room.
+  - Open design questions: whether a branch choice can be respecced (and at what cost), how the Q/F/X slots grow (swap-in choices or a fourth slot), and whether branch abilities also change the character's look the way advanced classes do.
 - Class skill trees.
 - A second weapon slot unlocked through progression (a Warden can never use a blaster).
 - Class-specific missions: a Medic evacuation, a Spy infiltration.
