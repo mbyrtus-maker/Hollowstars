@@ -5,8 +5,8 @@
 import { clamp, lerp, smoothstep, fbm, distPointSegXZ, dist2 } from './math.js';
 import { GRAVITY } from './config.js';
 
-export const WORLD_HALF = 400;
-export const HF_N = 160; // heightfield cells per side
+export const WORLD_HALF = 640;
+export const HF_N = 256; // heightfield cells per side
 export const HF_CELL = (WORLD_HALF * 2) / HF_N; // 5 m
 
 // Materials (client maps these to colors)
@@ -23,30 +23,36 @@ export const SUN_DIR = (() => {
 
 // ---------------------------------------------------------------- terrain
 
+// Garrison Seven sits this far east of where it was first built: a proper ride from Khet
+export const DUSK_SHIFT = 190;
 const ZONES_DUSK = [
-  { name: 'Khet', x: -160, z: 40, r: 68, f: 26, h: 6 },
+  { name: 'Khet', x: -160, z: 40, r: 112, f: 30, h: 6 },
   { name: 'Khet Landing', x: -228, z: 62, r: 22, f: 16, h: 6 },
-  { name: 'Garrison Seven', x: 170, z: 0, r: 70, f: 22, h: 10 },
-  { name: 'Ridge LZ', x: 78, z: 66, r: 14, f: 14, h: 11 },
+  { name: 'Khet Farms', x: -150, z: -112, r: 44, f: 22, h: 6.4 },
+  { name: 'Ochre Cut', x: -58, z: -128, r: 20, f: 16, h: 8 },
+  { name: 'Skitter Lodge', x: -120, z: 178, r: 16, f: 14, h: 7 },
+  { name: 'Khet Spaceport', x: -250, z: 126, r: 32, f: 18, h: 6 },
+  { name: 'Garrison Seven', x: 170 + DUSK_SHIFT, z: 0, r: 70, f: 22, h: 10 },
+  { name: 'Ridge LZ', x: 238, z: 66, r: 14, f: 14, h: 11 },
 ];
-const ROAD_DUSK = [[-100, 38], [-40, 30], [10, 20], [42, 15], [80, 8], [118, 1], [126, 0]];
+const ROAD_DUSK = [[-46, 36], [10, 26], [70, 18], [130, 13], [190, 8], [250, 4], [300, 1], [316, 0]];
 
 function rawDusk(x, z) {
   let h = 7 + fbm(x / 140, z / 140, 4, 3) * 9;
   h += fbm(x / 38, z / 38, 3, 11) * 2.2; // dunes
   // Mountain ring bounding the play space
   const edge = Math.max(Math.abs(x), Math.abs(z));
-  h += smoothstep(255, 380, edge) * (70 + fbm(x / 50, z / 50, 3, 21) * 30);
+  h += smoothstep(440, 610, edge) * (70 + fbm(x / 50, z / 50, 3, 21) * 30);
   // The Spine: a ridge between Khet and the garrison, with a pass for the road
-  const ridgeX = 44 + fbm(z / 90, 3, 2, 31) * 14;
+  const ridgeX = 150 + fbm(z / 90, 3, 2, 31) * 14;
   const across = (x - ridgeX) / 17;
   let ridge = 30 * Math.exp(-across * across) * (0.75 + 0.25 * fbm(z / 30, x / 30, 2, 41));
-  const pass = 1 - smoothstep(10, 30, Math.abs(z - 15));
+  const pass = 1 - smoothstep(10, 30, Math.abs(z - 12));
   ridge *= 1 - pass * 0.93;
-  ridge *= smoothstep(-260, -150, z) * (1 - smoothstep(150, 260, z)) * 0.6 + 0.4 * (1 - pass);
+  ridge *= smoothstep(-300, -170, z) * (1 - smoothstep(170, 300, z)) * 0.6 + 0.4 * (1 - pass);
   h += ridge;
   // Mesas scattered in the open desert
-  const mesas = [[-40, -110, 22, 18], [-70, 150, 26, 22], [110, -130, 20, 16], [-290, -40, 30, 24], [20, 150, 18, 15]];
+  const mesas = [[-30, -128, 22, 18], [-40, 178, 26, 22], [90, -150, 20, 16], [-340, -60, 30, 24], [60, 170, 18, 15], [250, -170, 24, 20], [300, 150, 22, 18]];
   for (const [mx, mz, r, mh] of mesas) {
     const d = dist2(x, z, mx, mz);
     h += (1 - smoothstep(r * 0.75, r, d)) * mh;
@@ -58,17 +64,21 @@ function rawDusk(x, z) {
 function rawThessaly(x, z) {
   let h = 3.2 + fbm(x / 80, z / 80, 4, 301) * 5 + fbm(x / 22, z / 22, 3, 311) * 1.2;
   const edge = Math.max(Math.abs(x), Math.abs(z));
-  h += smoothstep(230, 370, edge) * (45 + fbm(x / 45, z / 45, 3, 321) * 25);
-  const hills = [[20, 110, 40, 16], [-40, -110, 36, 14], [190, 110, 30, 12], [-230, 120, 34, 18], [60, -120, 30, 10]];
+  h += smoothstep(430, 610, edge) * (45 + fbm(x / 45, z / 45, 3, 321) * 25);
+  const hills = [[60, 140, 40, 16], [10, -150, 36, 14], [230, 130, 30, 12], [-300, 150, 34, 18], [150, -150, 30, 10], [-330, -140, 36, 16]];
   for (const [mx, mz, r, mh] of hills) h += (1 - smoothstep(r * 0.4, r, dist2(x, z, mx, mz))) * mh * (0.8 + 0.4 * fbm(x / 15, z / 15, 2, 331));
   return h;
 }
+export const SITE_SHIFT = 180; // the off-world Concordance sites, pushed out from their towns
 const ZONES_THESSALY = [
-  { name: 'Lowmarsh', x: -120, z: 30, r: 46, f: 20, h: 3.6 },
+  { name: 'Lowmarsh', x: -120, z: 30, r: 84, f: 24, h: 3.6 },
   { name: 'Lowmarsh Landing', x: -180, z: -25, r: 20, f: 14, h: 4.2 },
-  { name: 'Harvester Station Kappa', x: 120, z: -10, r: 58, f: 22, h: 5 },
+  { name: 'Resin Groves', x: -40, z: -92, r: 30, f: 18, h: 3.4 },
+  { name: 'Deadfall Yard', x: -150, z: 150, r: 22, f: 16, h: 4.2 },
+  { name: 'Lowmarsh Spaceport', x: -196, z: -76, r: 30, f: 16, h: 4.2 },
+  { name: 'Harvester Station Kappa', x: 120 + SITE_SHIFT, z: -10, r: 58, f: 22, h: 5 },
 ];
-const ROAD_THESSALY = [[-82, 22], [-20, 10], [40, 0], [86, -8], [92, -9]];
+const ROAD_THESSALY = [[-36, 22], [20, 12], [100, 4], [180, -4], [240, -8], [262, -10]];
 
 // Korrun Deep: an ice shelf with pressure ridges, a frozen sea to the south
 function rawKorrun(x, z) {
@@ -76,18 +86,21 @@ function rawKorrun(x, z) {
   const r = 1 - Math.abs(fbm(x / 45, z / 45, 3, 411) * 2);
   h += Math.pow(Math.max(0, r), 4) * 7; // pressure ridges
   const edge = Math.max(Math.abs(x), Math.abs(z));
-  h += smoothstep(240, 380, edge) * (80 + fbm(x / 50, z / 50, 3, 421) * 30);
+  h += smoothstep(430, 610, edge) * (80 + fbm(x / 50, z / 50, 3, 421) * 30);
   // frozen sea
   const sea = 1 - smoothstep(-40, 30, z);
   h = lerp(h, 2 + fbm(x / 30, z / 30, 2, 431) * 0.4, sea * 0.9);
   return h;
 }
 const ZONES_KORRUN = [
-  { name: 'Rime Hold', x: -130, z: 70, r: 44, f: 20, h: 11 },
+  { name: 'Rime Hold', x: -130, z: 70, r: 80, f: 24, h: 11 },
   { name: 'Rime Landing', x: -190, z: 25, r: 20, f: 14, h: 11 },
-  { name: 'Cryo-Vault Sigma', x: 130, z: 40, r: 58, f: 22, h: 13 },
+  { name: 'Hunters\' Rest', x: -120, z: 190, r: 16, f: 14, h: 12 },
+  { name: 'Rime Spaceport', x: -226, z: 118, r: 30, f: 16, h: 11 },
+  { name: 'Glassfall Quarry', x: -60, z: -34, r: 26, f: 16, h: 2.6 },
+  { name: 'Cryo-Vault Sigma', x: 130 + SITE_SHIFT, z: 40, r: 58, f: 22, h: 13 },
 ];
-const ROAD_KORRUN = [[-95, 62], [-20, 52], [50, 44], [93, 40]];
+const ROAD_KORRUN = [[-48, 62], [40, 54], [140, 46], [240, 42], [272, 40]];
 
 const TERRAIN = {
   duskvaro: { raw: rawDusk, zones: ZONES_DUSK, road: ROAD_DUSK, roadH: [6, 10] },
@@ -162,9 +175,12 @@ export function roadDistance(x, z) {
 // ---------------------------------------------------------------- layout
 
 const LAYOUTS = { duskvaro: (W) => buildLayout(W) };
+const EXTRAS = {};
 export function registerLayout(planet, fn) { LAYOUTS[planet] = fn; }
+// Districts added on top of a planet's core layout (farms, mines, markets, spaceports, traffic)
+export function extendLayout(planet, fn) { (EXTRAS[planet] ||= []).push(fn); }
 
-export function createWorld(planet = 'duskvaro') {
+export function createWorld(planet = 'duskvaro', opts = {}) {
   if (!TERRAIN[planet]) planet = 'duskvaro';
   const T = TERRAIN[planet];
   const W = {
@@ -189,13 +205,48 @@ export function createWorld(planet = 'duskvaro') {
     herds: [],
     terminals: [],
     towers: [],
+    nodes: [],
+    workers: [],
+    traffic: [],
+    pads: [],
+    shops: [],
     stamp: 1,
   };
   useWorld(W);
   LAYOUTS[planet](W);
+  for (const fn of EXTRAS[planet] || []) fn(W);
   for (const b of W.boxes) indexBox(W, b);
-  buildNav(W);
+  if (opts.nav !== false) buildNav(W);
   return W;
+}
+
+// Move everything a layout section created since mark() by (dx, dz). Lets a whole site be
+// authored in its own coordinates and placed anywhere on the map.
+export function markWorld(W) {
+  return {
+    boxes: W.boxes.length, lamps: W.lamps.length, cameras: W.cameras.length, decor: W.decor.length, npcs: W.npcs.length,
+    terminals: W.terminals.length, towers: W.towers.length, civSpots: W.civSpots.length, roster: (W.roster || []).length,
+    doors: new Set(Object.keys(W.doors)), des: new Set(Object.keys(W.destructibles)), pois: new Set(Object.keys(W.pois)), regions: new Set(Object.keys(W.regions)),
+    cams: W.cameras, tow: W.towers, ros: W.roster,
+  };
+}
+export function shiftWorld(W, m, dx, dz) {
+  const pt = (o) => { if (o && typeof o.x === 'number') { o.x += dx; o.z += dz; } };
+  for (let i = m.boxes; i < W.boxes.length; i++) { const b = W.boxes[i]; b.minX += dx; b.maxX += dx; b.minZ += dz; b.maxZ += dz; }
+  for (let i = m.lamps; i < W.lamps.length; i++) pt(W.lamps[i]);
+  for (let i = W.cameras === m.cams ? m.cameras : 0; i < W.cameras.length; i++) pt(W.cameras[i]);
+  for (let i = m.decor; i < W.decor.length; i++) { const d = W.decor[i]; pt(d); if (d.runs) d.runs = d.runs.map((r) => r.map(([x, z]) => [x + dx, z + dz])); }
+  for (let i = m.npcs; i < W.npcs.length; i++) pt(W.npcs[i]); // homes stay where they are
+  for (let i = m.terminals; i < W.terminals.length; i++) pt(W.terminals[i]);
+  for (let i = W.towers === m.tow ? m.towers : 0; i < W.towers.length; i++) pt(W.towers[i]);
+  for (let i = m.civSpots; i < W.civSpots.length; i++) pt(W.civSpots[i]);
+  if (W.roster) for (let i = W.roster === m.ros ? m.roster : 0; i < W.roster.length; i++) for (const t of W.roster[i].tasks) pt(t);
+  for (const [k, d] of Object.entries(W.doors)) if (!m.doors.has(k)) pt(d);
+  for (const [k, d] of Object.entries(W.destructibles)) if (!m.des.has(k)) pt(d);
+  for (const [k, p] of Object.entries(W.pois)) if (!m.pois.has(k)) { if (Array.isArray(p)) p.forEach(pt); else pt(p); }
+  for (const [k, r] of Object.entries(W.regions)) if (!m.regions.has(k)) {
+    if (typeof r.minX === 'number') { r.minX += dx; r.maxX += dx; r.minZ += dz; r.maxZ += dz; } else pt(r);
+  }
 }
 
 // The crew's ship, the Wayfarer: collision hull plus a decor marker the client renders.
@@ -316,6 +367,9 @@ export function crate(W, x, z, y0, s = 1.4, h = 1.2) {
   box(W, x, y0, z, s, h, s, MAT.CRATE);
 }
 
+const T = (x, z, act = 'look', wait = [1.5, 3.5], face) => ({ x, z, act, wait, face });
+const yawTo = (fx, fz, tx, tz) => Math.atan2(-(tx - fx), -(tz - fz));
+
 function buildLayout(W) {
   const gT = 6; // town ground
   // ---------- Khet Landing (spawn) with the party's shuttle
@@ -399,7 +453,8 @@ function buildLayout(W) {
   ];
   box(W, -108.5, gT, 37.5, 0.5, 1.2, 16, MAT.METAL_DARK);
 
-  // ---------- Garrison Seven
+  // ---------- Garrison Seven (authored at x 125..215, then shifted east by DUSK_SHIFT)
+  const gMark = markWorld(W);
   const gG = 10;
   const X0 = 125, X1 = 215, Z0 = -35, Z1 = 35, WH = 6.2, WT = 1.2;
   W.regions.garrison = { minX: X0, maxX: X1, minZ: Z0, maxZ: Z1 };
@@ -513,22 +568,32 @@ function buildLayout(W) {
     { id: 'c5', x: 189.8, y: gG + 5.5, z: -13.4, yaw: -Math.PI / 2 - 0.3, sweep: 0.6, speed: 0.4 }, // vault room
   ];
 
+  W.regions.command = { minX: 174.5, maxX: 197.5, minZ: -29.5, maxZ: -12.5 };
+  W.pois.gatePanel = { x: 127.6, z: 5 };
+  for (const [x, z, ry] of [[124.3, -8, Math.PI / 2], [124.3, 8, Math.PI / 2], [170, -35.7, 0], [170, 35.7, 0]]) W.decor.push({ type: 'banner', x, y: 13.2, z, ry });
+  W.roster = duskRoster(W);
+  shiftWorld(W, gMark, DUSK_SHIFT, 0);
+  W.siteShift = { dx: DUSK_SHIFT, dz: 0 };
+  // Road patrol between the Spine pass and the gate
+  W.roster.push({ name: 'road-a', road: true, tasks: [T(300, 3, 'scan', [4, 7]), T(214, 8.4, 'look', [4, 7])] });
+  W.roster.push({ name: 'road-b', road: true, offset: 1.4, tasks: [T(300, 4.6, 'idle', [4, 7]), T(214, 10, 'scan', [4, 7])] });
+
   // Ridge LZ (extraction)
-  box(W, 78, 11 - 0.3, 66, 12, 0.5, 12, MAT.CONCRETE);
-  W.pois.lz = { x: 78, z: 66 };
-  lamp(W, 72, 60, 11.2, 3.5, 7, 'cool');
-  lamp(W, 84, 72, 11.2, 3.5, 7, 'cool');
+  box(W, 238, 11 - 0.3, 66, 12, 0.5, 12, MAT.CONCRETE);
+  W.pois.lz = { x: 238, z: 66 };
+  lamp(W, 232, 60, 11.2, 3.5, 7, 'cool');
+  lamp(W, 244, 72, 11.2, 3.5, 7, 'cool');
 
   // Rock scatter for cover/flavour along the road and desert
-  const rocks = [[-60, 18, 3], [-20, 40, 2.4], [20, 5, 3.2], [60, 30, 2.6], [95, -8, 3], [100, 22, 2.2], [-80, -30, 4], [0, -60, 3.5], [70, -60, 3], [-120, -60, 2.8], [30, 90, 3.2], [-40, 90, 2.4], [110, 50, 2.8], [230, 10, 3.5], [235, -40, 3], [140, -60, 3.6], [150, 60, 2.6], [-250, 0, 3.4]];
+  const rocks = [[-30, 6, 3], [20, 48, 2.4], [60, -4, 3.2], [95, 34, 2.6], [200, -12, 3], [205, 30, 2.2], [20, -40, 4], [40, -80, 3.5], [110, -70, 3], [-10, 100, 2.8], [80, 100, 3.2], [-20, 130, 2.4], [240, 30, 2.8], [280, 40, 3.5], [270, -40, 3], [260, -80, 3.6], [190, 80, 2.6], [-330, 20, 3.4]];
   for (const [x, z, s] of rocks) {
     const y = terrainHeight(x, z) - 0.5;
     box(W, x, y, z, s, s * 0.9, s * 1.1, MAT.ROCK);
     W.decor.push({ type: 'rock', x, y, z, s });
   }
   // Guard posts for road patrol
-  W.pois.roadA = { x: 112, z: 3 };
-  W.pois.roadB = { x: 48, z: 14 };
+  W.pois.roadA = { x: 300, z: 3 };
+  W.pois.roadB = { x: 214, z: 8.4 };
   // Data the simulation spawns from
   W.npcs.push(
     { kind: 'merchant', merchant: 'teska', ...W.pois.teska },
@@ -536,14 +601,35 @@ function buildLayout(W) {
     { kind: 'informant', contact: 'oru', ...W.pois.informant },
     { kind: 'bartender', ...W.pois.bartender, spots: [{ x: -196.8, z: 27.5 }, { x: -196.8, z: 31 }, { x: -196.8, z: 34.5 }] },
   );
-  W.herds = [{ x: -40, z: -50 }, { x: 10, z: 95 }, { x: 100, z: -70 }];
-  W.critterBounds = [-120, 110, -130, 130];
+  W.herds = [{ x: 10, z: -60 }, { x: 30, z: 110 }, { x: 120, z: -90 }, { x: -40, z: 150 }];
+  W.critterBounds = [-60, 260, -180, 180];
   W.civCount = 11;
   W.terminals.push({ id: 'security', kind: 'security', x: W.pois.security.x, z: W.pois.security.z }, { id: 'vault', kind: 'vault', x: W.pois.vault.x, z: W.pois.vault.z });
-  W.pois.gatePanel = { x: 127.6, z: 5 };
   W.officerName = 'Commander Rhal';
-  for (const [x, z, ry] of [[124.3, -8, Math.PI / 2], [124.3, 8, Math.PI / 2], [170, -35.7, 0], [170, 35.7, 0]]) W.decor.push({ type: 'banner', x, y: 13.2, z, ry });
   W.decor.push({ type: 'stringlights', y: 10.2, runs: [[[-176, 46], [-150, 54]], [[-170, 30], [-140, 46]], [[-180, 38], [-132, 38]]] });
+}
+
+function duskRoster(W) {
+  const towerYaw = (tx, tz) => yawTo(170, 0, tx, tz);
+  const roster = [
+    { name: 'gate-l', post: true, tasks: [T(121.6, -4.6, 'scan', [5, 9], Math.PI / 2)] },
+    { name: 'gate-r', post: true, tasks: [T(121.6, 4.6, 'scan', [5, 9], Math.PI / 2)] },
+    { name: 'court', tasks: [T(135, -12), T(135, 11), T(166, 13.5, 'look', [2, 4]), T(168, -11), T(150, -11, 'scan', [2, 4])] },
+    { name: 'inner', tasks: [T(132, -31.6, 'look', [1, 2]), T(170, -31.8, 'look', [1, 2]), T(207.5, -31.6, 'scan', [2, 3]), T(211, -10), T(211, 24, 'look', [1, 2]), T(207, 31.6), T(132, 31.6, 'scan', [2, 3]), T(130.5, 12)] },
+    { name: 'outer', tasks: [T(119, -40, 'scan', [2, 4]), T(170, -41), T(221, -40, 'look', [2, 3]), T(221, -20, 'look', [1, 2]), T(221, 40, 'scan', [2, 3]), T(170, 41), T(119, 40)] },
+    { name: 'cell', tasks: [T(145, -18.5, 'look', [3, 6]), T(157, -18.5, 'look', [3, 6])] },
+    { name: 'mess-a', tasks: [T(171.2, 6, 'talk', [10, 16], Math.PI * 0.5 * -1), T(151, 12.5, 'idle', [3, 5]), T(171.2, 6, 'talk', [10, 16])] },
+    { name: 'mess-b', tasks: [T(174.4, 6.3, 'talk', [12, 18], Math.PI / 2), T(166, 18, 'look', [2, 4])] },
+    { name: 'depot', tasks: [T(196.5, 10.5, 'work', [3, 6], -Math.PI / 2), T(202, 10.5, 'work', [3, 5]), T(210.5, 10, 'work', [3, 5], Math.PI / 2), T(202, 1.5, 'look', [2, 4])] },
+    { name: 'sec', tasks: [T(180.2, 17.8, 'work', [8, 14], -Math.PI / 2), T(175, 19, 'look', [2, 4])] },
+    { name: 'courier', tasks: [T(171.2, -21, 'look', [2, 4]), T(151, 12.5, 'idle', [2, 4]), T(168, 8.5, 'look', [1, 2]), T(186, 9, 'work', [3, 5])] },
+  ];
+  W.towers.forEach((t, i) => roster.push({ name: 'tower' + i, post: true, tower: t, tasks: [T(t.x, t.z, 'scan', [4, 8], towerYaw(t.x, t.z) + Math.PI)] }));
+  roster.push({
+    name: 'rhal', officer: true,
+    tasks: [T(171.5, -19, 'look', [4, 6]), T(190.5, 8.5, 'look', [3, 4]), T(174.6, 8, 'talk', [5, 8]), T(151, -11.4, 'look', [3, 4]), T(130, 0, 'scan', [4, 6]), T(140, 12, 'look', [2, 3])],
+  });
+  return roster;
 }
 
 // ---------------------------------------------------------------- doors & destructibles
@@ -792,7 +878,7 @@ export function lampLight(W, x, z) {
 
 // ---------------------------------------------------------------- navigation grid
 
-export const NAV = { minX: -285, maxX: 245, minZ: -150, maxZ: 150, cell: 1.0 };
+export const NAV = { minX: -310, maxX: 430, minZ: -215, maxZ: 215, cell: 1.0 };
 
 function buildNav(W) {
   const nw = Math.round((NAV.maxX - NAV.minX) / NAV.cell);

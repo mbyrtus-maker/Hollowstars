@@ -141,6 +141,25 @@ export class Audio {
     o.start(t); o.stop(t + 0.2);
     this.impact(x, y, z);
   }
+  // A two-tone repulsor horn; bikes beep higher, haulers blare lower
+  honk(x, y, z, kind = 2) {
+    if (!this.ctx) return;
+    const out = this.spatial(x, y, z, 10, 90);
+    if (!out) return;
+    const c = this.ctx, t = c.currentTime;
+    const base = kind === 1 ? 520 : kind === 3 ? 180 : 330;
+    for (const [f, d] of [[base, 0], [base * 1.26, 0]]) {
+      const o = c.createOscillator(), g = c.createGain(), lp = c.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.value = f;
+      lp.type = 'lowpass'; lp.frequency.value = 1400;
+      g.gain.setValueAtTime(0.0001, t + d);
+      g.gain.exponentialRampToValueAtTime(0.07, t + d + 0.02);
+      g.gain.setValueAtTime(0.07, t + d + 0.22);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.3);
+      o.connect(lp).connect(g).connect(out);
+      o.start(t + d); o.stop(t + d + 0.32);
+    }
+  }
   swing(x, y, z) {
     if (!this.ctx) return;
     const out = this.spatial(x, y, z, 5, 50);

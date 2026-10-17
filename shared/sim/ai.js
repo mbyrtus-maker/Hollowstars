@@ -28,6 +28,13 @@ const BARKS = {
   pain: ['Agh!', 'I\'m hit!', 'Hnngh!'],
 };
 export const pick = (arr, rng) => arr[Math.floor(rng() * arr.length)];
+const WORK_BARKS = {
+  farmer: ['Rain\'s a myth out here. We pull water out of the air.', 'Half this harvest goes to the tithe.', 'Mind the rows, offworlder.', 'Good crop this season. Don\'t tell the Concordance.'],
+  miner: ['Ochre seam\'s running thin on this face.', 'Watch your head under the cliff.', 'Every crate of ore buys a week of water.', 'You want to dig? Grab a pick.'],
+  maker: ['Three ore to a plate, no shortcuts.', 'Bring me hides and resin and I\'ll weave you armor.', 'Bench is hot. Stand back.', 'Circuits need salvage. Lots of it.'],
+  logger: ['These giants fell before my grandmother was born.', 'Resin in the heartwood. Careful with your blade.', 'Kade pays nothing for this. The market pays.'],
+  hunter: ['Herd moved east this morning.', 'Quiet. You\'ll spook them.', 'Hides sell well on Korrun.'],
+};
 
 // ------------------------------------------------------------------ spawning
 
@@ -45,29 +52,7 @@ function mkNPC(game, kind, x, z, extra = {}) {
 const T = (x, z, act = 'look', wait = [1.5, 3.5], face) => ({ x, z, act, wait, face });
 
 export function garrisonRoster(W) {
-  if (W.roster) return W.roster;
-  const towerYaw = (tx, tz) => yawTo(170, 0, tx, tz);
-  const roster = [
-    { name: 'gate-l', post: true, tasks: [T(121.6, -4.6, 'scan', [5, 9], Math.PI / 2)] },
-    { name: 'gate-r', post: true, tasks: [T(121.6, 4.6, 'scan', [5, 9], Math.PI / 2)] },
-    { name: 'court', tasks: [T(135, -12), T(135, 11), T(166, 13.5, 'look', [2, 4]), T(168, -11), T(150, -11, 'scan', [2, 4])] },
-    { name: 'inner', tasks: [T(132, -31.6, 'look', [1, 2]), T(170, -31.8, 'look', [1, 2]), T(207.5, -31.6, 'scan', [2, 3]), T(211, -10), T(211, 24, 'look', [1, 2]), T(207, 31.6), T(132, 31.6, 'scan', [2, 3]), T(130.5, 12)] },
-    { name: 'outer', tasks: [T(119, -40, 'scan', [2, 4]), T(170, -41), T(221, -40, 'look', [2, 3]), T(221, -20, 'look', [1, 2]), T(221, 40, 'scan', [2, 3]), T(170, 41), T(119, 40)] },
-    { name: 'cell', tasks: [T(145, -18.5, 'look', [3, 6]), T(157, -18.5, 'look', [3, 6])] },
-    { name: 'mess-a', tasks: [T(171.2, 6, 'talk', [10, 16], Math.PI * 0.5 * -1), T(151, 12.5, 'idle', [3, 5]), T(171.2, 6, 'talk', [10, 16])] },
-    { name: 'mess-b', tasks: [T(174.4, 6.3, 'talk', [12, 18], Math.PI / 2), T(166, 18, 'look', [2, 4])] },
-    { name: 'depot', tasks: [T(196.5, 10.5, 'work', [3, 6], -Math.PI / 2), T(202, 10.5, 'work', [3, 5]), T(210.5, 10, 'work', [3, 5], Math.PI / 2), T(202, 1.5, 'look', [2, 4])] },
-    { name: 'sec', tasks: [T(180.2, 17.8, 'work', [8, 14], -Math.PI / 2), T(175, 19, 'look', [2, 4])] },
-    { name: 'courier', tasks: [T(171.2, -21, 'look', [2, 4]), T(151, 12.5, 'idle', [2, 4]), T(168, 8.5, 'look', [1, 2]), T(186, 9, 'work', [3, 5])] },
-  ];
-  W.towers.forEach((t, i) => roster.push({ name: 'tower' + i, post: true, tower: t, tasks: [T(t.x, t.z, 'scan', [4, 8], towerYaw(t.x, t.z) + Math.PI)] }));
-  roster.push({
-    name: 'rhal', officer: true,
-    tasks: [T(171.5, -19, 'look', [4, 6]), T(190.5, 8.5, 'look', [3, 4]), T(174.6, 8, 'talk', [5, 8]), T(151, -11.4, 'look', [3, 4]), T(130, 0, 'scan', [4, 6]), T(140, 12, 'look', [2, 3])],
-  });
-  roster.push({ name: 'road-a', road: true, tasks: [T(112, 3, 'scan', [4, 7]), T(48, 14, 'look', [4, 7])] });
-  roster.push({ name: 'road-b', road: true, offset: 1.4, tasks: [T(112, 4.6, 'idle', [4, 7]), T(48, 15.6, 'scan', [4, 7])] });
-  return roster;
+  return W.roster || [];
 }
 
 export function spawnGuard(game, def, opts = {}) {
@@ -102,6 +87,20 @@ export function spawnTown(game) {
     if (n.kind === 'merchant') mkNPC(game, K.MERCHANT, n.x, n.z, { hp: 80, yaw: n.yaw, ai: { baseYaw: n.yaw }, props: { merchant: n.merchant, variant: v } });
     else if (n.kind === 'informant') mkNPC(game, K.INFORMANT, n.x, n.z, { hp: 80, yaw: n.yaw, ai: { baseYaw: n.yaw }, props: { contact: n.contact, variant: v + 8 } });
     else if (n.kind === 'bartender') mkNPC(game, K.BARTENDER, n.x, n.z, { hp: 80, yaw: n.yaw, ai: { baseYaw: n.yaw, task: 0, spots: n.spots }, props: { variant: 33 } });
+  }
+}
+
+// Working townsfolk: farmers, miners, loggers, makers and hunters (see shared/districts.js)
+export const ROLE_CODE = { farmer: 1, miner: 2, hunter: 3, maker: 4, logger: 5 };
+export function spawnWorkers(game) {
+  const rng = game.rng;
+  for (const def of game.world.workers) {
+    const t0 = def.tasks[0];
+    const h = def.home || t0;
+    mkNPC(game, K.CIVILIAN, h.x + (rng() - 0.5) * 2, h.z + (rng() - 0.5) * 2, {
+      hp: 45, ai: { job: def, role: def.role, task: Math.floor(rng() * def.tasks.length), wait: rng() * 3, hunt: 'home' },
+      props: { variant: Math.floor(rng() * 1000) + 500, roleCode: ROLE_CODE[def.role] || 0, worker: def.role },
+    });
   }
 }
 
@@ -538,10 +537,106 @@ export function updateCamera(game, e, dt) {
 
 // ------------------------------------------------------------------ civilians & friends
 
+function updateWorker(game, e, dt) {
+  const ai = e.ai;
+  if (ai.role === 'hunter') return updateHunter(game, e, dt);
+  const tasks = ai.job.tasks;
+  if (ai.wait > 0) {
+    ai.wait -= dt;
+    brake(game, e, dt);
+    if (ai.act === 'work') e.flags |= F.WORK;
+    if (ai.act === 'talk') e.flags |= F.TALK;
+    if (ai.faceYaw != null) faceToward(e, ai.faceYaw, dt, 3);
+    if (ai.wait <= 0 && ai.give) { game.econDeliver(e, ai.give); ai.give = null; }
+    if (game.rng() < dt * 0.02 && nearestPlayer(game, e.x, e.z, 6)) game.bark(e, pick(WORK_BARKS[ai.role] || BARKS.civ, game.rng));
+    return;
+  }
+  const t = tasks[ai.task % tasks.length];
+  if (moveTo(game, e, t.x, t.z, 1.6 + (e.variant % 4) * 0.08, dt, 0.6) || (ai.stuckCount || 0) > 3) {
+    ai.stuckCount = 0;
+    ai.wait = t.wait[0] + game.rng() * (t.wait[1] - t.wait[0]);
+    ai.act = t.act;
+    ai.faceYaw = t.face ?? null;
+    ai.give = t.give || null;
+    ai.task = (ai.task + 1) % tasks.length;
+  }
+}
+
+// Hunters walk out to a herd, take a shot, dress the kill and carry it home
+function updateHunter(game, e, dt) {
+  const ai = e.ai, home = ai.job.home || ai.job.tasks[0];
+  const prey = ai.prey && game.ents.get(ai.prey);
+  switch (ai.hunt) {
+    case 'home': {
+      if (ai.wait > 0) { ai.wait -= dt; brake(game, e, dt); e.flags |= F.WORK; if (ai.carry) { game.econDeliver(e, { meat: 2, hide: 1 }); ai.carry = false; } return; }
+      if (!moveTo(game, e, home.x, home.z, 1.8, dt, 0.8)) return;
+      // pick the nearest living critter within a long walk
+      let best = null, bd = 230;
+      for (const c of game.ents.values()) {
+        if (c.kind !== K.CRITTER || c.dead || c.claimed) continue;
+        const d = dist2(home.x, home.z, c.x, c.z);
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (best) { ai.prey = best.id; best.claimed = e.id; ai.hunt = 'stalk'; ai.giveUp = game.time + 140; }
+      else ai.wait = 20;
+      return;
+    }
+    case 'stalk': {
+      if (!prey || game.time > ai.giveUp) { if (prey) prey.claimed = 0; ai.hunt = 'return'; return; }
+      if (prey.dead) { ai.hunt = 'dress'; return; }
+      const d = dist2(e.x, e.z, prey.x, prey.z);
+      if (d < 22 && lineOfSight(game.world, e.x, e.y + 1.5, e.z, prey.x, prey.y + 0.6, prey.z, { terrain: true })) { ai.hunt = 'aim'; ai.aimT = 1.2 + game.rng(); return; }
+      // far off, aim for a coarse spot near the herd so the path isn't rebuilt every step
+      if (d > 40) moveTo(game, e, Math.round(prey.x / 10) * 10, Math.round(prey.z / 10) * 10, 3.6, dt, 3);
+      else moveTo(game, e, prey.x, prey.z, 1.4, dt, 1);
+      if (d < 40) e.flags |= F.CROUCH;
+      return;
+    }
+    case 'aim': {
+      if (!prey) { ai.hunt = 'return'; return; }
+      if (prey.dead) { ai.hunt = 'dress'; return; }
+      brake(game, e, dt);
+      e.flags |= F.AIM;
+      faceToward(e, yawTo(e.x, e.z, prey.x, prey.z), dt, 6);
+      ai.aimT -= dt;
+      if (ai.aimT <= 0) {
+        const ox = e.x, oy = e.y + 1.45, oz = e.z;
+        let dx = prey.x - ox, dy = prey.y + 0.55 - oy, dz = prey.z - oz;
+        const l = Math.hypot(dx, dy, dz) || 1;
+        game.spawnBolt(e, ox, oy, oz, dx / l, dy / l, dz / l, 90, 45, 'hunter', 0, 0, 3);
+        ai.aimT = 2.2;
+        if (dist2(e.x, e.z, prey.x, prey.z) > 26) ai.hunt = 'stalk';
+      }
+      return;
+    }
+    case 'dress': {
+      if (!prey) { ai.hunt = 'return'; return; }
+      if (moveTo(game, e, prey.x, prey.z, 2.2, dt, 1.1)) {
+        ai.dressT = (ai.dressT || 0) + dt;
+        e.flags |= F.WORK | F.CROUCH;
+        if (ai.dressT > 4) { ai.dressT = 0; ai.carry = true; game.removeEnt(prey); ai.prey = null; ai.hunt = 'return'; }
+      }
+      return;
+    }
+    case 'return':
+      if (moveTo(game, e, home.x, home.z, 1.9, dt, 0.8)) { ai.hunt = 'home'; ai.wait = 6 + game.rng() * 10; }
+      return;
+  }
+}
+
 function updateCivilian(game, e, dt) {
   const ai = e.ai, W = game.world;
   ai.repathCD = (ai.repathCD || 0) - dt;
   e.flags = 0;
+  if (ai.job) {
+    if (ai.fleeUntil && game.time < ai.fleeUntil) {
+      e.flags |= F.FLEE;
+      const h = ai.job.home || ai.job.tasks[0];
+      if (moveTo(game, e, h.x, h.z, 5.2, dt, 1.0)) e.flags |= F.CROUCH;
+      return;
+    }
+    return updateWorker(game, e, dt);
+  }
   if (ai.captive) {
     const pen = W.doors.pen;
     if (pen && !pen.open) { e.flags |= F.CROUCH; brake(game, e, dt); if (game.rng() < dt * 0.04) game.bark(e, pick(['Please... get us out.', 'They work us till we drop.', 'The overseer has the only key — or a cutter.'], game.rng)); return; }
@@ -705,6 +800,14 @@ function updateCritter(game, e, dt) {
 }
 
 export function updateHerds(game, dt) {
+  // herds breed back slowly so hunting never empties the map
+  game.herdT = (game.herdT || 0) - dt;
+  if (game.herdT <= 0) {
+    game.herdT = 30;
+    const counts = new Map();
+    for (const c of game.ents.values()) if (c.kind === K.CRITTER && !c.dead) counts.set(c.ai.herd, (counts.get(c.ai.herd) || 0) + 1);
+    for (const h of game.herds) if ((counts.get(h.id) || 0) < 4) mkNPC(game, K.CRITTER, h.x + (game.rng() - 0.5) * 8, h.z + (game.rng() - 0.5) * 8, { hp: 30, ai: { herd: h.id, gx: h.x, gz: h.z, wait: 2 }, props: { r: 0.55, h: 1.0, variant: Math.floor(game.rng() * 100) } });
+  }
   for (const h of game.herds) {
     h.t -= dt;
     if (h.t <= 0) {

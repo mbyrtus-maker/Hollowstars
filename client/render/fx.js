@@ -104,6 +104,7 @@ export class FX {
       player: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x40c8ff).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
       enemy: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a30).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
       speeder: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x60ff90).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+      hunter: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb040).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
     };
     this.lightPool = [];
     for (let i = 0; i < 6; i++) { const l = new THREE.PointLight(0xffffff, 0, 10, 2); scene.add(l); this.lightPool.push({ l, t: 0, max: 0 }); }

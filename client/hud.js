@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { K, F, MISSIONS, ITEMS, MERCHANTS, PLAYER_COLORS, POWERS, CLASSES } from '../shared/config.js';
 import { clamp, wrapAngle, yawTo, dist2 } from '../shared/math.js';
 import { PLANETS, PLANET_ORDER, SHIP } from '../shared/planets.js';
+import { GOODS, GOOD_ORDER, RECIPES, UPGRADES, UPGRADE_ORDER, packCount } from '../shared/economy.js';
 
 const $ = (id) => document.getElementById(id);
 const v3 = new THREE.Vector3();
@@ -12,7 +13,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 export class HUD {
   constructor() {
     this.el = {};
-    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body']) this.el[id] = $(id);
+    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body', 'num-pk', 'num-cap']) this.el[id] = $(id);
     this.markerPool = [];
     this.bubblePool = [];
     this.detPool = [];
@@ -108,13 +109,14 @@ export class HUD {
     const { pv, g, camera, lp, entities, myId, t, dt } = st;
     if (!pv) return;
     // vitals
-    const hpMax = 100;
+    const hpMax = pv.mhp || 100;
     this.el['bar-hp'].style.width = clamp(pv.hp / hpMax, 0, 1) * 100 + '%';
     this.el['bar-sh'].style.width = pv.shm ? (pv.sh / pv.shm) * 100 + '%' : '0';
     this.el['num-hp'].textContent = Math.max(0, pv.hp);
     this.el['bar-fo'].style.width = pv.fo + '%';
     this.el['num-fo'].textContent = pv.fo;
     this.el['num-cr'].textContent = pv.cr.toLocaleString();
+    if (pv.pk) { const n = Object.values(pv.pk).reduce((a, b) => a + b, 0); this.el['num-pk'].textContent = n; this.el['num-cap'].textContent = pv.cap; }
     this.el['num-gr'].textContent = pv.gr;
     this.el['num-md'].textContent = pv.md;
     this.el['bar-heat'].style.width = pv.ht * 100 + '%';
@@ -426,6 +428,83 @@ export class HUD {
     render(true);
     clearInterval(this._navT);
     this._navT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.nav')) { clearInterval(this._navT); return; } render(); }, 700);
+  }
+  // ---------------------------------------------------------------- economy
+  packLine(pv) {
+    const pk = pv.pk || {};
+    const items = GOOD_ORDER.filter((g) => pk[g]).map((g) => `<span>${esc(GOODS[g].name)} <b>${pk[g]}</b></span>`);
+    return `<div class="pack-list">${items.length ? items.join('') : '<span>Your pack is empty.</span>'}</div>`;
+  }
+  // The exchange: buy and sell goods; prices move with the town's stock
+  openMarket(merchantId, getG, getPv, send, onClose) {
+    const M = MERCHANTS[merchantId];
+    let key = '';
+    const render = (force) => {
+      const g = getG(), pv = getPv();
+      if (!g || !g.mk || !pv) return;
+      const k = JSON.stringify([g.mk, pv.pk, pv.cr, pv.cap]);
+      if (!force && k === key) return;
+      key = k;
+      const pk = pv.pk || {}, used = packCount(pk), room = pv.cap - used;
+      const ship = g.ship != null && g.ship < 9000 ? (g.ship < 60 ? 'a trader landed just now' : `last trader landed ${Math.round(g.ship / 60)} min ago`) : 'no traders yet today';
+      const row = ([id, stock, buy, sell, trend]) => {
+        const have = pk[id] || 0;
+        const arrow = trend > 0 ? '<span class="up" title="Price rising">▲</span>' : trend < 0 ? '<span class="dn" title="Price falling">▼</span>' : '';
+        return `<tr><td class="good"><b>${esc(GOODS[id].name)}</b><small>${esc(GOODS[id].desc)}</small></td>
+          <td class="n">${stock}</td><td class="n">${buy}cr ${arrow}</td><td class="n">${sell}cr</td><td class="n">${have || '—'}</td>
+          <td class="act"><button data-t="${id}" data-n="1" ${stock < 1 || pv.cr < buy || room < 1 ? 'disabled' : ''}>Buy 1</button><button data-t="${id}" data-n="5" ${stock < 5 || pv.cr < buy * 5 || room < 5 ? 'disabled' : ''}>Buy 5</button><button class="sell" data-t="${id}" data-n="-1" ${have ? '' : 'disabled'}>Sell 1</button><button class="sell" data-t="${id}" data-n="${-have}" ${have > 1 ? '' : 'disabled'}>Sell all</button></td></tr>`;
+      };
+      const raw = g.mk.rows.filter((r) => GOODS[r[0]].kind === 'raw'), parts = g.mk.rows.filter((r) => GOODS[r[0]].kind === 'part');
+      this.el['modal-body'].innerHTML = `<h2>${esc(M.title)}</h2><p class="sub">${esc(M.name)} buys and sells for ${esc(g.mk.town)}. Prices rise when the town runs short and fall when it's flooded.</p>
+        <div class="mk-head"><span>You have <b>${pv.cr.toLocaleString()}cr</b></span><span>Pack <b>${used}/${pv.cap}</b></span><span>${esc(ship)}</span></div>
+        <div class="mk-wrap"><table class="mkt"><thead><tr><th>Goods</th><th class="n">In town</th><th class="n">Buy</th><th class="n">Sell</th><th class="n">You carry</th><th></th></tr></thead>
+        <tbody><tr class="sec"><td colspan="6">Raw goods</td></tr>${raw.map(row).join('')}<tr class="sec"><td colspan="6">Parts</td></tr>${parts.map(row).join('')}</tbody></table></div>`;
+      this.el['modal-body'].querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => { send({ t: 'trade', g: b.dataset.t, n: +b.dataset.n }); setTimeout(() => render(true), 200); }));
+    };
+    this.openModal('', onClose);
+    render(true);
+    clearInterval(this._mkT);
+    this._mkT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.mkt')) { clearInterval(this._mkT); return; } render(); }, 500);
+  }
+  // The workshop: make parts from goods, then fit upgrades to what you own
+  openWorkshop(merchantId, getPv, send, onClose) {
+    const M = MERCHANTS[merchantId];
+    let key = '';
+    const needList = (cost, pk) => Object.entries(cost).map(([g, n]) => `<span class="${(pk[g] || 0) >= n ? 'ok' : 'no'}">${esc(GOODS[g].name)} ${pk[g] || 0}/${n}</span>`).join('');
+    const render = (force) => {
+      const pv = getPv();
+      if (!pv) return;
+      const k = JSON.stringify([pv.pk, pv.cr, pv.gear]);
+      if (!force && k === key) return;
+      key = k;
+      const pk = pv.pk || {}, gear = pv.gear || {};
+      const recipes = Object.entries(RECIPES).map(([id, r]) => {
+        const can = Math.min(...Object.entries(r.in).map(([g, n]) => Math.floor((pk[g] || 0) / n)), Math.floor(pv.cr / r.fee));
+        return `<div class="wk-card ${can > 0 ? 'ready' : ''}"><h4>${esc(GOODS[id].name)}</h4><p>${esc(GOODS[id].desc)}</p>
+          <div class="need">${needList(r.in, pk)}<span>Bench fee ${r.fee}cr</span></div>
+          <div class="row"><span>You carry ${pk[id] || 0}</span><span><button data-r="${id}" data-n="1" ${can > 0 ? '' : 'disabled'}>Make 1</button><button data-r="${id}" data-n="${Math.max(1, can)}" ${can > 1 ? '' : 'disabled'}>Make ${Math.max(2, can)}</button></span></div></div>`;
+      }).join('');
+      const upgrades = UPGRADE_ORDER.map((id) => {
+        const U = UPGRADES[id], t = gear[id] || 0, next = U.tiers[t];
+        const pips = `<span class="pips" aria-label="Tier ${t} of ${U.tiers.length}">${U.tiers.map((_, i) => `<i class="${i < t ? 'on' : ''}"></i>`).join('')}</span>`;
+        const now = t ? `<div class="fx">Fitted: ${esc(U.tiers[t - 1].fx)}</div>` : '';
+        if (!next) return `<div class="wk-card"><h4>${esc(U.name)} ${pips}</h4><p>${esc(U.desc)}</p>${now}<div class="row"><span>Top tier reached</span></div></div>`;
+        const ready = Object.entries(next.cost).every(([g, n]) => (pk[g] || 0) >= n) && pv.cr >= next.cr;
+        return `<div class="wk-card ${ready ? 'ready' : ''}"><h4>${esc(U.name)} ${pips}</h4><p>${esc(U.desc)}</p>${now}
+          <div class="need">${needList(next.cost, pk)}<span class="${pv.cr >= next.cr ? 'ok' : 'no'}">${next.cr}cr</span></div>
+          <div class="row"><span class="fx">Tier ${t + 1}: ${esc(next.fx)}</span><button data-u="${id}" ${ready ? '' : 'disabled'}>Fit tier ${t + 1}</button></div></div>`;
+      }).join('');
+      this.el['modal-body'].innerHTML = `<h2>${esc(M.title)}</h2><p class="sub">${esc(M.name)} turns raw goods into parts, and parts into better gear. Buy what you're missing at the exchange.</p>
+        <div class="mk-head"><span>You have <b>${pv.cr.toLocaleString()}cr</b></span><span>Pack <b>${packCount(pk)}/${pv.cap}</b></span></div>
+        ${this.packLine(pv)}
+        <div class="wk"><div><h3 class="sec">Make parts</h3><div class="wk-grid">${recipes}</div></div><div><h3 class="sec">Upgrade what you own</h3><div class="wk-grid">${upgrades}</div></div></div>`;
+      this.el['modal-body'].querySelectorAll('[data-r]').forEach((b) => b.addEventListener('click', () => { send({ t: 'craft', r: b.dataset.r, n: +b.dataset.n }); setTimeout(() => render(true), 200); }));
+      this.el['modal-body'].querySelectorAll('[data-u]').forEach((b) => b.addEventListener('click', () => { send({ t: 'upg', k: b.dataset.u }); setTimeout(() => render(true), 200); }));
+    };
+    this.openModal('', onClose);
+    render(true);
+    clearInterval(this._wkT);
+    this._wkT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.wk')) { clearInterval(this._wkT); return; } render(); }, 500);
   }
   openModal(html, onClose) {
     this.el['modal-body'].innerHTML = html;

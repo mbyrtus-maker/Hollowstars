@@ -12,7 +12,8 @@ import { mat, glowMat } from './models.js';
 import { textures, applyWorldUV, repeated, setAnisotropy } from './textures.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
-import { makeWayfarer } from './ship.js';
+import { makeWayfarer, makeNpcShip } from './ship.js';
+import { padState } from '../../shared/spaceport.js';
 
 export const MAT_COLORS = {
   [MAT.ADOBE]: 0xc99a6a, [MAT.ADOBE_DARK]: 0xa8774f, [MAT.METAL]: 0xb6b9c1, [MAT.METAL_DARK]: 0x4a4e5a, [MAT.CRATE]: 0x7d6a4e,
@@ -97,7 +98,7 @@ export function createScene(canvas, world, look) {
   let useBloom = true;
 
   // ---- everything that belongs to one planet lives in worldGroup and is rebuilt on arrival
-  let W = null, L = null, worldGroup = null, weather = null, envTex = null, water = null, fires = [];
+  let W = null, L = null, worldGroup = null, weather = null, envTex = null, water = null, fires = [], nodes = null, traders = [];
   let lampT = 0;
 
   function disposeGroup(g) {
@@ -149,6 +150,15 @@ export function createScene(canvas, world, look) {
     worldGroup.add(decor.group);
     api.ship = decor.ship;
     fires = decor.fires;
+    nodes = makeNodes(world);
+    worldGroup.add(nodes.group);
+    traders = world.pads.map((pad) => {
+      const g = new THREE.Group();
+      const ships = {};
+      for (const type of ['hauler', 'skiff', 'lander']) { ships[type] = makeNpcShip(type); ships[type].group.visible = false; g.add(ships[type].group); }
+      worldGroup.add(g);
+      return { pad, ships };
+    });
     water = null;
     if (world.water != null) {
       const wm = new THREE.MeshStandardMaterial({ color: 0x2c4636, roughness: 0.12, metalness: 0.2, transparent: true, opacity: 0.86 });
@@ -229,10 +239,14 @@ export function createScene(canvas, world, look) {
       }
       alarmLights.forEach((l, i) => { l.intensity = api.alarm && l.visible ? (Math.sin(t * 7 + i * 1.6) > 0 ? 120 : 10) : 0; });
       if (weather) weather.update(dt, t, camera.position);
+      if (api.serverTime != null) updateTraders(traders, api.serverTime, t);
+      if (nodes) nodes.update(t);
       if (water) water.material.opacity = 0.84 + Math.sin(t * 0.7) * 0.02;
     },
     render() { if (useBloom || gtao.enabled) composer.render(); else renderer.render(scene, camera); },
     setDoor(id, open) { if (api.doors[id]) api.doors[id].target = open ? 1 : 0; },
+    setDepleted(ids) { if (nodes) nodes.setDepleted(ids); },
+    serverTime: null,
     setDestroyed(id, v) {
       const d = api.destructibles[id];
       if (!d || d.destroyed === v) return;
@@ -525,7 +539,7 @@ function makeScatter(world, T, look) {
   const rng = mulberry32(4242 + world.planet.length * 31);
   const rockG = new THREE.IcosahedronGeometry(0.5, 0);
   const shrubG = new THREE.IcosahedronGeometry(0.45, 0);
-  const NR = C.rocks, NS = C.shrubs, NE = C.reeds || 0;
+  const NR = Math.round(C.rocks * 1.9), NS = Math.round(C.shrubs * 1.9), NE = Math.round((C.reeds || 0) * 1.6);
   const rocks = new THREE.InstancedMesh(rockG, new THREE.MeshStandardMaterial({ color: C.rock, roughness: 1, flatShading: true, ...repeated(T.rock, 0.6) }), Math.max(1, NR));
   const shrubs = new THREE.InstancedMesh(shrubG, mat(C.shrub, { rough: 1 }), Math.max(1, NS));
   const reedG = new THREE.ConeGeometry(0.05, 1.6, 3); reedG.translate(0, 0.8, 0);
@@ -533,8 +547,8 @@ function makeScatter(world, T, look) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), e = new THREE.Euler();
   let ri = 0, si = 0, ei = 0;
   const clear = (x, z) => world.zones.some((zn) => dist2(x, z, zn.x, zn.z) < zn.r + 6) || roadDistance(x, z) < 6;
-  for (let k = 0; k < 9000 && (ri < NR || si < NS || ei < NE); k++) {
-    const x = (rng() - 0.5) * 640, z = (rng() - 0.5) * 520;
+  for (let k = 0; k < 20000 && (ri < NR || si < NS || ei < NE); k++) {
+    const x = (rng() - 0.5) * 1050, z = (rng() - 0.5) * 900;
     if (clear(x, z)) continue;
     const y = terrainHeight(x, z);
     const r = rng();
@@ -740,6 +754,49 @@ function makeDecor(world, look) {
       }
       g.add(f);
       fires.push({ x: d.x, y: d.y, z: d.z, flames, seed: d.x * 0.37 });
+    } else if (d.type === 'crops') {
+      g.add(makeCrops(d));
+    } else if (d.type === 'vaporator') {
+      const m = mat(0xc8c2b6, { metal: 0.5, rough: 0.4 });
+      for (const y of [1.2, 2.6, 4.0]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.12, 12), m); r.position.set(d.x, d.y + y, d.z); r.castShadow = true; g.add(r); }
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 8), m); top.position.set(d.x, d.y + 6.2, d.z); top.castShadow = true;
+      const light = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 4), glowMat(0x7fe3ff, 2.5)); light.position.set(d.x, d.y + 6.8, d.z);
+      g.add(top, light);
+    } else if (d.type === 'headframe') {
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.12, 6, 20), mat(0x3a3d45, { metal: 0.6 }));
+      wheel.position.set(d.x, d.y + 1.2, d.z); wheel.castShadow = true;
+      const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, d.y - terrainHeight(d.x, d.z) + 1, 4), mat(0x1a1a1e));
+      cable.position.set(d.x + 1.4, (d.y + terrainHeight(d.x, d.z)) / 2 + 0.6, d.z);
+      const bucket = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1), mat(0x6a5a40, { metal: 0.4 }));
+      bucket.position.set(d.x + 1.4, terrainHeight(d.x, d.z) + 2.2, d.z); bucket.castShadow = true;
+      g.add(wheel, cable, bucket);
+    } else if (d.type === 'hiderack') {
+      const hide = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.6), mat(0x7a5236, { rough: 1 }));
+      hide.material.side = THREE.DoubleSide;
+      hide.position.set(d.x + 0.12, d.y + 1.3, d.z - 0.6); hide.rotation.y = Math.PI / 2; hide.castShadow = true;
+      const hide2 = hide.clone(); hide2.position.z = d.z + 0.9; hide2.scale.set(0.8, 0.85, 1);
+      g.add(hide, hide2);
+    } else if (d.type === 'resintree') {
+      g.add(makeResinTree(d));
+    } else if (d.type === 'sign') {
+      g.add(makeSign(d));
+    } else if (d.type === 'padring') {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(6.2, 6.9, 40), new THREE.MeshStandardMaterial({ color: 0xd9b23a, roughness: 0.8 }));
+      ring.rotation.x = -Math.PI / 2; ring.position.set(d.x, d.y + 0.02, d.z); ring.receiveShadow = true;
+      const cross = new THREE.Mesh(new THREE.PlaneGeometry(1, 7), ring.material); cross.rotation.x = -Math.PI / 2; cross.position.set(d.x, d.y + 0.02, d.z);
+      const cross2 = cross.clone(); cross2.rotation.z = Math.PI / 2;
+      g.add(ring, cross, cross2);
+    } else if (d.type === 'glassroof') {
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(d.w, 0.08, d.d), new THREE.MeshStandardMaterial({ color: 0xbfe6f0, transparent: true, opacity: 0.3, metalness: 0.6, roughness: 0.05, depthWrite: false }));
+      glass.position.set(d.x, d.y, d.z);
+      const frame = mat(0x4a4e5a, { metal: 0.5 });
+      g.add(glass);
+      for (let i = 0; i <= 4; i++) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, d.d), frame); f.position.set(d.x - d.w / 2 + (i * d.w) / 4, d.y + 0.05, d.z); g.add(f); }
+    } else if (d.type === 'forge') {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 0.6), glowMat(0xff7a2a, 2.2));
+      f.position.set(d.x, d.y + 1.05, d.z);
+      g.add(f);
+      fires.push({ x: d.x, y: d.y, z: d.z, flames: [], seed: d.x });
     } else if (d.type === 'harvester') {
       // treads, the felling saw on its arm, and a lit cab over the collision hulk
       const h = new THREE.Group();
@@ -832,4 +889,135 @@ function makeSpires(list) {
   });
   inst.castShadow = true; inst.receiveShadow = true;
   return inst;
+}
+
+// ------------------------------------------------------------------ district props
+
+// Rows of crops in a field (golden grain on Dusk, leafy tubers under Korrun's glass)
+function makeCrops(d) {
+  const grain = d.crop === 'grain';
+  const geo = grain ? new THREE.ConeGeometry(0.16, 1.1, 5) : new THREE.IcosahedronGeometry(0.3, 0);
+  geo.translate(0, grain ? 0.55 : 0.2, 0);
+  const m = new THREE.MeshStandardMaterial({ color: grain ? 0xc9a24a : 0x4f8a3a, roughness: 0.9, flatShading: true });
+  const rows = Math.max(1, Math.floor((d.z1 - d.z0) / 1.3)), per = Math.max(1, Math.floor((d.x1 - d.x0) / 0.75));
+  const inst = new THREE.InstancedMesh(geo, m, rows * per);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), e = new THREE.Euler();
+  const rng = mulberry32(Math.floor(d.x0 * 7 + d.z0 * 13));
+  let i = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < per; c++) {
+    const x = d.x0 + (c + 0.5) * ((d.x1 - d.x0) / per) + (rng() - 0.5) * 0.2, z = d.z0 + (r + 0.5) * ((d.z1 - d.z0) / rows);
+    e.set((rng() - 0.5) * 0.25, rng() * 6, (rng() - 0.5) * 0.25); q.setFromEuler(e);
+    const k = 0.75 + rng() * 0.5;
+    s.set(k, k * (grain ? 0.8 + rng() * 0.5 : 1), k);
+    p.set(x, d.y, z);
+    inst.setMatrixAt(i++, m4.compose(p, q, s));
+  }
+  inst.count = i;
+  inst.castShadow = true; inst.receiveShadow = true;
+  const soil = new THREE.Mesh(new THREE.PlaneGeometry(d.x1 - d.x0, d.z1 - d.z0), new THREE.MeshStandardMaterial({ color: grain ? 0x6a4a30 : 0x3a2a20, roughness: 1 }));
+  soil.rotation.x = -Math.PI / 2; soil.position.set((d.x0 + d.x1) / 2, d.y + 0.03, (d.z0 + d.z1) / 2); soil.receiveShadow = true;
+  const g = new THREE.Group();
+  g.add(soil, inst);
+  return g;
+}
+
+// Thessaly's resin trees: twisted trunks with glowing amber pods
+function makeResinTree(d) {
+  const g = new THREE.Group();
+  g.position.set(d.x, d.y, d.z);
+  const bark = mat(0x4a3428, { rough: 1 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.45, 4.4, 7), bark);
+  trunk.position.y = 2.1; trunk.rotation.z = 0.12; trunk.castShadow = true;
+  const can = new THREE.Mesh(new THREE.IcosahedronGeometry(2.1, 1), new THREE.MeshStandardMaterial({ color: 0x4a7a2e, roughness: 0.9, flatShading: true }));
+  can.scale.set(1.2 * d.s, 0.6 * d.s, 1.2 * d.s); can.position.y = 4.6; can.castShadow = true;
+  g.add(trunk, can);
+  const pod = glowMat(0xffa42a, 1.6);
+  for (let i = 0; i < 4; i++) { const a = i * 1.7 + d.x; const p = new THREE.Mesh(new THREE.SphereGeometry(0.13, 6, 4), pod); p.position.set(Math.cos(a) * 0.38, 1.1 + i * 0.55, Math.sin(a) * 0.38); g.add(p); }
+  return g;
+}
+
+// A hanging trade sign over a market or workshop door
+function makeSign(d) {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 96;
+  const x = cv.getContext('2d');
+  x.fillStyle = d.kind === 'exchange' ? '#3a2a1a' : '#1e2630'; x.fillRect(0, 0, 256, 96);
+  x.strokeStyle = d.kind === 'exchange' ? '#d9a62e' : '#7fe3ff'; x.lineWidth = 6; x.strokeRect(5, 5, 246, 86);
+  x.fillStyle = x.strokeStyle; x.font = '600 38px "Chakra Petch", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(d.kind === 'exchange' ? 'EXCHANGE' : 'WORKSHOP', 128, 50);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.98), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.35, side: THREE.DoubleSide }));
+  board.position.set(d.x, d.y, d.z); board.rotation.y = d.yaw;
+  return board;
+}
+
+// Gatherable resources: ore and ice crystal clusters, harvest sheaves, resin taps, cut logs
+function makeNodes(world) {
+  const g = new THREE.Group();
+  const items = [];
+  const looks = {
+    ore: { color: 0xd9822e, glow: 0.5, geo: () => new THREE.OctahedronGeometry(0.45, 0), n: 5 },
+    ice: { color: 0x9fe0ff, glow: 0.7, geo: () => new THREE.OctahedronGeometry(0.5, 0), n: 5 },
+    resin: { color: 0xffa42a, glow: 1.1, geo: () => new THREE.SphereGeometry(0.28, 8, 6), n: 3 },
+    grain: { color: 0xe0b84a, glow: 0, geo: () => new THREE.ConeGeometry(0.3, 1.3, 6), n: 3 },
+    timber: { color: 0x8a6a48, glow: 0, geo: () => new THREE.CylinderGeometry(0.22, 0.22, 1.8, 8).rotateZ(Math.PI / 2), n: 3 },
+  };
+  for (const n of world.nodes) {
+    const L = looks[n.kind];
+    const grp = new THREE.Group();
+    grp.position.set(n.x, n.y, n.z);
+    const rng = mulberry32(n.id * 31 + 7);
+    const m = new THREE.MeshStandardMaterial({ color: L.color, roughness: 0.35, metalness: 0.1, emissive: L.color, emissiveIntensity: L.glow, flatShading: true, transparent: n.kind === 'ice', opacity: n.kind === 'ice' ? 0.85 : 1 });
+    const geo = L.geo();
+    for (let i = 0; i < L.n; i++) {
+      const c = new THREE.Mesh(geo, m);
+      const a = (i / L.n) * Math.PI * 2 + rng();
+      const r = n.kind === 'timber' ? 0 : 0.35 + rng() * 0.25;
+      c.position.set(Math.cos(a) * r, n.kind === 'timber' ? 0.22 + i * 0.4 : 0.3 + rng() * 0.2, Math.sin(a) * r);
+      if (n.kind === 'ore' || n.kind === 'ice') { c.scale.set(0.6 + rng() * 0.5, 1 + rng() * 1.2, 0.6 + rng() * 0.5); c.rotation.set(rng() * 0.6, rng() * 3, rng() * 0.6); }
+      c.castShadow = true;
+      grp.add(c);
+    }
+    if (n.kind === 'resin') { const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.1, 5), mat(0x3a2a20)); stand.position.y = 0.55; grp.add(stand); grp.children.forEach((c, i) => { if (c !== stand) c.position.y = 0.8 + i * 0.2; }); }
+    g.add(grp);
+    items.push({ id: n.id, grp, m, base: L.glow });
+  }
+  let depleted = new Set();
+  return {
+    group: g,
+    setDepleted(ids) { depleted = new Set(ids); for (const it of items) it.grp.visible = !depleted.has(it.id); },
+    update(t) { for (const it of items) if (it.base) it.m.emissiveIntensity = it.base * (0.75 + Math.sin(t * 2 + it.id) * 0.25); },
+  };
+}
+
+// ------------------------------------------------------------------ trader ships
+
+const easeOut = (k) => 1 - (1 - k) * (1 - k);
+function updateTraders(traders, time, t) {
+  traders.forEach(({ pad, ships }, i) => {
+    const st = padState(i, time);
+    for (const [type, s] of Object.entries(ships)) s.group.visible = type === st.type && st.phase !== 'empty';
+    if (st.phase === 'empty') return;
+    const s = ships[st.type];
+    const g = s.group;
+    const inYaw = Math.atan2(pad.ax, pad.az); // flying in from (ax, az) toward the pad
+    if (st.phase === 'landed') {
+      g.position.set(pad.x, pad.y + Math.sin(t * 0.8 + i) * 0.02, pad.z);
+      g.rotation.set(0, inYaw, 0);
+      s.setThrust(0);
+      return;
+    }
+    if (st.phase === 'arrive') {
+      const k = easeOut(st.k), r = 1 - k;
+      g.position.set(pad.x + pad.ax * r * r * 320, pad.y + Math.pow(r, 1.4) * 120, pad.z + pad.az * r * r * 320);
+      g.rotation.set(-0.25 * r + (k > 0.85 ? (k - 0.85) * 0.8 : 0), inYaw, 0);
+      s.setThrust(0.35 + (k > 0.7 ? 0.65 : 0));
+      return;
+    }
+    // depart: lift straight up, turn, then accelerate out and away
+    const k = st.k, lift = Math.min(1, k / 0.35), go = Math.max(0, (k - 0.3) / 0.7);
+    const out = go * go * 420;
+    g.position.set(pad.x + pad.ax * out, pad.y + lift * 18 + go * go * 140, pad.z + pad.az * out);
+    g.rotation.set(go * 0.18, inYaw + Math.PI * Math.min(1, lift * 1.2), 0);
+    s.setThrust(0.6 + go * 0.4);
+  });
 }

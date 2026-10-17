@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { clamp, lerp, mulberry32 } from '../../shared/math.js';
+import { clamp, lerp, mulberry32, smoothstep } from '../../shared/math.js';
 import { textures, repeated } from './textures.js';
 import { makeRifle, makeBlade, makePistol, makeKnife, glowMat } from './models.js';
 
@@ -60,7 +60,8 @@ export class Humanoid {
     this.deadT = -1;
     this.blendCrouch = 0;
     this.bladeOn = 0;
-    this.drawn = type !== 'player';
+    this.drawn = type !== 'player' && !opts.role;
+    this.parryT = 9;
     this.drawT = 9;
     this.parts = [];
     const rng = mulberry32((opts.variant || 1) * 7919 + 13);
@@ -269,8 +270,33 @@ export class Humanoid {
       this.part(P, new THREE.TorusGeometry(0.135, 0.016, 6, 16).rotateX(Math.PI / 2).scale(1, 1, 0.75), 'leather', 0x3a2a20, 0, 0.06, 0);
       return;
     }
-    this.body(o, rng, { skin, top: robe, legs: pick(ROBES), boots: 0x3a2c22, hair: hairC });
+    const role = o.role || 0;
+    const workLook = { 1: { top: 0xb89a6a, legs: 0x5a4a3a }, 2: { top: 0x6a5a4a, legs: 0x3a3430 }, 3: { top: 0x4a5a3a, legs: 0x3a3a2a }, 4: { top: 0x5a4a40, legs: 0x2e2a28 }, 5: { top: 0x7a3a2a, legs: 0x3a3430 } }[role];
+    this.body(o, rng, { skin, top: workLook ? workLook.top : robe, legs: workLook ? workLook.legs : pick(ROBES), boots: 0x3a2c22, hair: hairC, gloves: role === 2 || role === 4 || role === 5 ? 0x3a2a1e : undefined });
     const style = pick(hairStyles);
+    if (role) {
+      this.hair(rng, hairC, role === 5 ? 'beard' : 'short');
+      if (role === 1) { // farmer: wide straw hat
+        this.part(H, new THREE.CylinderGeometry(0.3, 0.3, 0.015, 16), 'cloth', 0xd6b878, 0, 0.21, 0);
+        this.part(H, new THREE.CylinderGeometry(0.1, 0.12, 0.1, 12), 'cloth', 0xd6b878, 0, 0.26, 0);
+      } else if (role === 2) { // miner: hard hat with a lamp
+        this.part(H, new THREE.SphereGeometry(0.135, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.55), 'plate', 0xc9952e, 0, 0.15, 0.005);
+        this.part(H, new THREE.CylinderGeometry(0.15, 0.15, 0.012, 14), 'plate', 0xc9952e, 0, 0.17, 0);
+        this.glowPart(H, new THREE.CylinderGeometry(0.025, 0.025, 0.03, 8).rotateX(Math.PI / 2), 0xfff0c0, 0, 0.22, -0.13);
+      } else if (role === 3) { // hunter: hood and a bandolier
+        this.part(H, new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), 'cloth', 0x3a4a2a, 0, 0.13, 0.03, -0.35);
+        this.part(S, rbox(0.05, 0.55, 0.014), 'leather', 0x4a3420, 0.02, 0.27, -0.118, 0, 0, 0.6);
+      } else if (role === 4) { // maker: goggles pushed up and leather shoulders
+        for (const s of [-1, 1]) this.part(H, new THREE.TorusGeometry(0.026, 0.008, 5, 10), 'leather', 0x2a2a2a, s * 0.04, 0.205, -0.085, -0.4);
+        this.part(H, new THREE.TorusGeometry(0.108, 0.01, 4, 16).rotateX(Math.PI / 2), 'leather', 0x2a2a2a, 0, 0.2, 0);
+        for (const shb of [this.shL, this.shR]) this.part(shb, new THREE.SphereGeometry(0.08, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), 'leather', 0x5a3a24, 0, 0.02, 0);
+      } else if (role === 5) { // logger: knit cap
+        this.part(H, new THREE.SphereGeometry(0.118, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.5), 'cloth', 0x8a2a24, 0, 0.15, 0.005);
+      }
+      this.part(this.coatBone, lathe([[0.14, 0.05], [0.18, -0.12], [0.2, -0.22]], 12, 0.85), 'cloth', workLook.top);
+      this.coatSwing = 0.3;
+      return;
+    }
     if (rng() < 0.45) this.part(H, new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), 'cloth', robe, 0, 0.13, 0.03, -0.35);
     else { this.hair(rng, hairC, style); if (rng() < 0.4) this.part(H, new THREE.TorusGeometry(0.105, 0.025, 6, 14).rotateX(Math.PI / 2), 'cloth', accent, 0, 0.215, 0); }
     this.part(this.coatBone, lathe([[0.14, 0.05], [0.2, -0.2], [0.26, -0.5], [0.28, -0.66]], 12, 0.85), 'cloth', robe);
@@ -325,7 +351,7 @@ export class Humanoid {
   arm(type, o) {
     const cls = o.cls || 'soldier';
     this.cls = cls;
-    this.weaponKind = type === 'player' ? ({ warden: 'blade', gunslinger: 'pistols', soldier: 'blaster', medic: 'pistol', spy: 'knives' }[cls]) : (type === 'lancer' || type === 'officer' ? 'blaster' : null);
+    this.weaponKind = type === 'player' ? ({ warden: 'blade', gunslinger: 'pistols', soldier: 'blaster', medic: 'pistol', spy: 'knives' }[cls]) : (type === 'lancer' || type === 'officer' || o.role === 3 ? 'blaster' : null);
     this.slots = [];
     const slot = (obj, hand, hp, hr, mount, mp, mr) => { this.slots.push({ obj, hand, hp, hr, mount, mp, mr }); };
     if (this.weaponKind === 'blaster') {
@@ -397,13 +423,26 @@ export class Humanoid {
   update(dt, s, t) {
     if (s.drawn !== undefined && s.drawn !== this.drawn) this.setDrawn(s.drawn);
     this.drawT += dt;
+    this.parryT += dt;
     const sp = s.speed || 0;
-    const moving = sp > 0.35;
+    const moving = sp > 0.3;
     this.blendCrouch = lerp(this.blendCrouch, s.crouch || s.sit ? 1 : 0, Math.min(1, dt * 10));
     const cr = this.blendCrouch;
-    this.phase += dt * (moving ? sp * (s.crouch ? 2.6 : 1.55) : 0);
-    const amp = moving ? clamp(sp / 5, 0.25, 1) * (sp > 7 ? 0.95 : 0.65) * (s.crouch ? 0.7 : 1) : 0;
-    const sw = Math.sin(this.phase), cw = Math.cos(this.phase);
+    // Gait: legs swing in proportion to how far the body actually travels, so feet don't skate.
+    // `go` fades the gait in and out so starting and stopping settle instead of snapping.
+    this.go = lerp(this.go || 0, moving ? 1 : 0, Math.min(1, dt * (moving ? 7 : 4)));
+    const go = this.go;
+    const run = smoothstep(2.8, 5.8, sp) * (s.crouch ? 0.3 : 1);
+    const stride = s.crouch ? 0.5 : lerp(0.68, 1.35, run); // metres per step
+    if (moving) this.phase += (dt * sp / stride) * Math.PI;
+    else { const k = Math.round(this.phase / Math.PI) * Math.PI; this.phase += (k - this.phase) * Math.min(1, dt * 5); }
+    // which way the legs swing relative to facing (backpedal and strafe)
+    const fwd = s.fwd ?? 1, side = s.side ?? 0;
+    const fx = clamp(fwd * 1.25, -1, 1), sx = clamp(side * 1.25, -1, 1);
+    const A = go * lerp(0.42, 0.8, run) * (s.crouch ? 0.85 : 1) * clamp(sp / 1.2, 0.35, 1);
+    const p = this.phase;
+    const sw = Math.sin(p), cw = Math.cos(p);
+    const amp = A; // kept for the weapon poses below
     const R = this.rootBone;
     const breathe = Math.sin(t * 1.7) * 0.012;
     if (this.blade) { this.bladeOn = this.drawn ? Math.min(1, this.bladeOn + dt * 6) : 0; this.blade.userData.beam.scale.y = Math.max(0.001, this.bladeOn); }
@@ -411,56 +450,79 @@ export class Humanoid {
       if (this.deadT < 0) { this.deadT = 0; this.deadDir = Math.random() < 0.5 ? 1 : -1; }
       this.deadT += dt;
       const f = clamp(this.deadT / 0.55, 0, 1), ease = f * f;
-      R.rotation.x = this.deadDir * 1.5 * ease;
-      this.pelvis.position.y = lerp(0.95, 0.25, ease);
+      R.rotation.x = this.deadDir * 1.5 * ease; R.rotation.z = 0;
+      this.pelvis.position.set(0, lerp(0.95, 0.25, ease), 0);
       this.shL.rotation.set(-1.2 * ease, 0, -0.6 * ease); this.shR.rotation.set(-1.0 * ease, 0, 0.7 * ease);
-      this.hipL.rotation.x = 0.4 * ease; this.hipR.rotation.x = -0.2 * ease;
+      this.hipL.rotation.set(0.4 * ease, 0, 0); this.hipR.rotation.set(-0.2 * ease, 0, 0);
       this.knL.rotation.x = -0.4 * ease; this.knR.rotation.x = -0.2;
       this.spine.rotation.set(0, 0, 0); this.head.rotation.set(0.3 * ease * this.deadDir, 0.4 * ease, 0);
       return;
     }
     this.deadT = -1;
     if (s.downed) {
-      R.rotation.x = lerp(R.rotation.x, 1.35, Math.min(1, dt * 6));
-      this.pelvis.position.y = 0.28;
+      R.rotation.x = lerp(R.rotation.x, 1.35, Math.min(1, dt * 6)); R.rotation.z = 0;
+      this.pelvis.position.set(0, 0.28, 0);
       this.shL.rotation.set(0.4 + Math.sin(t * 2) * 0.1, 0, -0.3); this.shR.rotation.set(1.2, 0, 0.6);
       this.elR.rotation.x = 1.4; this.elL.rotation.x = 0.3;
-      this.hipL.rotation.x = 0.5; this.knL.rotation.x = -0.9; this.hipR.rotation.x = 0.1; this.knR.rotation.x = -0.2;
+      this.hipL.rotation.set(0.5, 0, 0); this.knL.rotation.x = -0.9; this.hipR.rotation.set(0.1, 0, 0); this.knR.rotation.x = -0.2;
       this.head.rotation.set(0.5, 0, 0);
       return;
     }
     R.rotation.x = lerp(R.rotation.x, 0, Math.min(1, dt * 8));
     if (s.driving) {
-      this.pelvis.position.y = 0.5;
+      R.rotation.z = 0;
+      this.pelvis.position.set(0, 0.5, 0);
+      this.pelvis.rotation.set(0, 0, 0);
       this.hipL.rotation.set(1.5, 0, -0.15); this.hipR.rotation.set(1.5, 0, 0.15);
       this.knL.rotation.x = -1.6; this.knR.rotation.x = -1.6;
-      this.spine.rotation.set(-0.35, 0, 0);
+      this.spine.rotation.set(-0.3 + Math.sin(t * 3.1) * 0.02, 0, -(s.turn || 0) * 0.05);
       this.shL.rotation.set(1.1, 0, 0.2); this.shR.rotation.set(1.1, 0, -0.2);
       this.elL.rotation.x = 0.4; this.elR.rotation.x = 0.4;
-      this.head.rotation.set(0.35, 0, 0);
+      this.head.rotation.set(0.3, clamp(-(s.turn || 0) * 0.25, -0.5, 0.5), 0);
       this.coatBone.rotation.x = -1.2;
       return;
     }
-    // legs and hips
-    this.pelvis.position.y = lerp(0.95, s.sit ? 0.5 : 0.62, cr) + (moving ? Math.abs(cw) * 0.04 * amp : 0);
-    this.pelvis.rotation.y = moving ? sw * 0.08 * amp : 0;
+    // ---------------- legs
+    // thigh swing (forward/back) and abduction for sideways steps; knees flex through the swing
+    const kneeK = lerp(0.95, 2.0, run) * (s.crouch ? 0.7 : 1);
+    const legPose = (ph) => {
+      const sn = Math.sin(ph), cs = Math.cos(ph);
+      const thigh = A * sn * fx + A * 0.18 * run * (fx >= 0 ? 1 : -1); // runners reach forward
+      const abd = A * 0.45 * sn * sx;
+      // the swing (foot travelling toward where you're going) is when cos(ph) > 0; the knee folds early in it
+      const flex = go * (kneeK * Math.pow(Math.max(0, Math.cos(ph - 0.35)), 1.4) * Math.max(0.35, Math.hypot(fx, sx)) + 0.12 * Math.max(0, -cs) * (1 - run));
+      return [thigh, abd, flex];
+    };
+    const [tL, aL, kL] = legPose(p), [tR, aR, kR] = legPose(p + Math.PI);
     const crouchHip = s.sit ? 1.45 : 1.05;
-    this.hipL.rotation.set(sw * amp + cr * crouchHip, 0, -0.03);
-    this.hipR.rotation.set(-sw * amp + cr * crouchHip, 0, 0.03);
-    this.knL.rotation.x = -Math.max(0, -cw) * amp * 1.3 - cr * (s.sit ? 1.45 : 1.75);
-    this.knR.rotation.x = -Math.max(0, cw) * amp * 1.3 - cr * (s.sit ? 1.45 : 1.75);
+    const idleShift = (1 - go) * Math.sin(t * 0.45 + this.build * 9);
+    this.hipL.rotation.set(tL + cr * crouchHip, 0, -0.03 + aL - idleShift * 0.03);
+    this.hipR.rotation.set(tR + cr * crouchHip, 0, 0.03 - aR - idleShift * 0.03);
+    this.knL.rotation.x = -kL - cr * (s.sit ? 1.45 : 1.75) - Math.max(0, idleShift) * 0.12;
+    this.knR.rotation.x = -kR - cr * (s.sit ? 1.45 : 1.75) - Math.max(0, -idleShift) * 0.12;
     if (s.air) { this.hipL.rotation.x = 0.6; this.knL.rotation.x = -1.0; this.hipR.rotation.x = -0.2; this.knR.rotation.x = -0.5; }
-    let lean = -cr * (s.sit ? 0.05 : 0.45) - (sp > 7 ? 0.18 : moving ? 0.06 : 0);
-    if (s.flee) lean -= 0.2;
-    this.spine.rotation.set(lean + breathe, -this.pelvis.rotation.y * 0.8, moving ? sw * 0.04 : 0);
+    // ---------------- pelvis: bob (walkers peak mid-stance, runners peak in flight), sway over the stance foot
+    const c2 = Math.cos(2 * p);
+    const bob = go * (lerp(0.028, -0.05, run) * c2 - 0.035 * run);
+    this.pelvis.position.set(go * 0.028 * (1 - run) * sw * Math.max(0.3, Math.abs(fx)) + idleShift * 0.018, lerp(0.95, s.sit ? 0.5 : 0.62, cr) + bob, 0);
+    this.pelvis.rotation.set(0, go * 0.13 * A * sw * fx, go * 0.05 * cw * (1 - run * 0.5) + idleShift * 0.025);
+    // ---------------- body lean: into speed, into acceleration, into turns
+    const turn = s.turn || 0, accel = s.accel || 0;
+    this.leanX = lerp(this.leanX || 0, clamp(0.04 * go + 0.17 * run + accel * 0.025, -0.12, 0.34) * (fx < -0.2 ? -0.4 : 1), Math.min(1, dt * 6));
+    this.leanZ = lerp(this.leanZ || 0, clamp(turn * sp * 0.022, -0.28, 0.28), Math.min(1, dt * 5));
+    R.rotation.z = this.leanZ;
+    let lean = -cr * (s.sit ? 0.05 : 0.45) - this.leanX;
+    if (s.flee) lean -= 0.15;
+    this.spine.rotation.set(lean + breathe, -this.pelvis.rotation.y * 1.15, go * 0.03 * sw - this.pelvis.rotation.z * 0.7);
     this.spine.position.y = 0.08 + breathe;
     const pitch = s.pitch || 0;
-    this.head.rotation.set(clamp(pitch * 0.6, -0.5, 0.5) - lean * 0.6, 0, 0);
+    // the head stays level while the body bobs and leans
+    this.head.rotation.set(clamp(pitch * 0.6, -0.5, 0.5) - lean * 0.75 - bob * 1.2, 0, -this.leanZ * 0.6);
     // coats and capes trail the legs
     const cs = this.coatSwing || 0;
-    this.coatBone.rotation.x = -cr * 1.0 + (moving ? -0.1 * amp : 0) * cs;
+    this.coatBone.rotation.set(-cr * 1.0 - (go * 0.12 + run * 0.15) * cs, 0, go * 0.06 * sw * cs);
     this.coatBone.scale.y = 1 - cr * 0.25;
-    this.capeBone.rotation.x = 0.08 + (moving ? 0.25 * amp : 0) + Math.sin(t * 2) * 0.03;
+    this.capeBone.rotation.x = 0.08 + go * (0.2 + run * 0.35) + Math.sin(t * 2) * 0.03;
     // arms
     const weapon = s.weapon;
     const armed = this.drawn && weapon && !s.stagger;
@@ -469,9 +531,12 @@ export class Humanoid {
     this.handR.rotation.set(0, 0, 0); this.handL.rotation.set(0, 0, 0);
     this.head.rotation.y = 0;
     const idleArms = () => {
-      this.shL.rotation.set(-sw * amp * 0.8 + 0.05, 0, -0.1);
-      this.shR.rotation.set(sw * amp * 0.8 + 0.05, 0, 0.1);
-      this.elL.rotation.x = 0.25 + (moving ? 0.25 : 0); this.elR.rotation.x = 0.25 + (moving ? 0.25 : 0);
+      const k = lerp(0.85, 1.0, run) * fx;
+      const hang = (1 - go) * Math.sin(t * 0.9 + this.build * 5) * 0.03;
+      this.shL.rotation.set(-tL * k + 0.06 + run * 0.05 + hang, 0, -0.1 - run * 0.08 + go * 0.03);
+      this.shR.rotation.set(-tR * k + 0.06 + run * 0.05 - hang, 0, 0.1 + run * 0.08 - go * 0.03);
+      this.elL.rotation.x = lerp(0.2 + go * 0.18, 1.35, run) + Math.max(0, -tL) * 0.3 * go;
+      this.elR.rotation.x = lerp(0.2 + go * 0.18, 1.35, run) + Math.max(0, -tR) * 0.3 * go;
     };
     if (!armed) {
       idleArms();
@@ -533,8 +598,9 @@ export class Humanoid {
         this.handR.rotation.set(0, 0, lerp(a[3], b[3], f));
         this.elR.rotation.x = 0.2;
         this.shL.rotation.set(0.5, 0, -0.4); this.elL.rotation.x = 0.6;
-      } else if (s.block) {
-        this.shR.rotation.set(1.35, 0, 0.75); this.elR.rotation.x = 0.6; this.handR.rotation.set(0, 0, 1.25);
+      } else if (s.block || this.parryT < 0.3) {
+        const flick = this.parryT < 0.3 ? Math.sin((this.parryT / 0.3) * Math.PI) : 0;
+        this.shR.rotation.set(1.35 + flick * 0.35, 0, 0.75 - flick * 0.5); this.elR.rotation.x = 0.6; this.handR.rotation.set(0, 0, 1.25 + flick * 0.6);
         this.shL.rotation.set(0.9, 0, -0.2); this.elL.rotation.x = 0.8;
         this.spine.rotation.y = 0.2;
       } else {

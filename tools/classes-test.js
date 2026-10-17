@@ -2,7 +2,7 @@
 // Run: node tools/classes-test.js
 import { Game } from '../shared/sim/game.js';
 import { K, TICK_DT } from '../shared/config.js';
-import { groundAt } from '../shared/world.js';
+import { groundAt, DUSK_SHIFT as S } from '../shared/world.js';
 
 let failures = 0;
 const check = (c, msg) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${msg}`); if (!c) failures++; };
@@ -102,20 +102,20 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
   check(!g.alarm.active && !before, 'spy: the execution is silent — no alarm');
   // Execute on an alert, healthy guard staggers instead of killing
   const e2 = guard(g, 'sec'); calm(e2); e2.ai.state = 'combat'; e2.ai.sus = 1;
-  e2.x = 138; e2.z = 13; e2.y = groundAt(g.world, 138, 13, 30);
-  place(g, p, 142, 13); faceAt(p, e2); g.rebuildSpatial(); p.cdk.q = 0;
+  e2.x = 138 + S; e2.z = 13; e2.y = groundAt(g.world, 138 + S, 13, 30);
+  place(g, p, 142 + S, 13); faceAt(p, e2); g.rebuildSpatial(); p.cdk.q = 0;
   g.handle('p0', { t: 'ab', k: 'q', yaw: p.yaw, pitch: p.pitch });
   check(!e2.dead && e2.stagger > 0, 'spy: Execute on a healthy, alert guard is a heavy staggering hit');
   // Throwing knife
   const e3 = guard(g, 'courier'); calm(e3);
-  e3.x = 133; e3.z = -2; e3.y = groundAt(g.world, 133, -2, 30);
-  place(g, p, 133, 8); faceAt(p, e3); g.rebuildSpatial();
+  e3.x = 133 + S; e3.z = -2; e3.y = groundAt(g.world, 133 + S, -2, 30);
+  place(g, p, 133 + S, 8); faceAt(p, e3); g.rebuildSpatial();
   const dir = [e3.x - p.x, e3.y + 1.2 - (p.y + 1.4), e3.z - p.z]; const l = Math.hypot(...dir);
   g.handle('p0', { t: 'ab', k: 'f', o: [p.x, p.y + 1.4, p.z], d: dir.map((v) => v / l) });
   run(g, 0.5);
   check(e3.dead && p.knives === 2, 'spy: a thrown knife silently kills an unaware guard');
   // Cloak
-  place(g, p, 140, 0); p.crouch = false;
+  place(g, p, 140 + S, 0); p.crouch = false;
   g.handle('p0', { t: 'ab', k: 'x' });
   run(g, 0.2);
   check(p.visibility < 0.1, `spy: Cloak makes you nearly invisible (${p.visibility.toFixed(2)})`);
@@ -148,7 +148,7 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
 {
   const { g, ps: [p] } = setup('soldier');
   g.camerasOn = false; g.camOffUntil = 1e9;
-  place(g, p, 140, 0); p.crouch = false;
+  place(g, p, 140 + S, 0); p.crouch = false;
   for (let i = 0; i < 300 && !g.alarm.active; i++) g.tick(0.05);
   check(g.alarm.active, 'alarm: raised after being spotted in the courtyard');
   run(g, 0.5);
@@ -157,6 +157,36 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
   check(g.alarm.active, 'alarm: still active 20 seconds after the last sighting');
   run(g, 13);
   check(!g.alarm.active, 'alarm: stands down once 30 seconds pass with no sighting');
+}
+
+// ---------------------------------------------------------------- arc blade deflection
+{
+  const { g, ps: [p] } = setup('warden');
+  place(g, p, -150, 40);
+  p.drawn = true; p.blocking = false; p.yaw = 0; p.pitch = 0.05; p.focus = 100;
+  g.rebuildSpatial();
+  const shooter = { id: 9999, x: p.x, y: p.y, z: p.z - 20, kind: K.LANCER };
+  const fire = (fromX, fromZ) => {
+    const ox = fromX, oz = fromZ, oy = p.y + 1.3;
+    const dx = p.x - ox, dz = p.z - oz, l = Math.hypot(dx, dz);
+    return g.spawnBolt(shooter, ox, oy, oz, dx / l, 0, dz / l, 60, 12, 'enemy', 0);
+  };
+  const hp0 = p.hp;
+  const b = fire(p.x + 3, p.z - 18);
+  for (let i = 0; i < 12; i++) g.tick(TICK_DT);
+  const sp = Math.hypot(b.vx, b.vy, b.vz);
+  const aim = { x: -Math.sin(p.yaw) * Math.cos(p.pitch), y: Math.sin(p.pitch), z: -Math.cos(p.yaw) * Math.cos(p.pitch) };
+  const dot = (b.vx * aim.x + b.vy * aim.y + b.vz * aim.z) / sp;
+  check(b.team === 'player' && p.hp === hp0, 'blade: a bolt from the front is caught without holding block');
+  check(dot > 0.99, `blade: the deflection flies where the Warden is facing (cos ${dot.toFixed(3)})`);
+  p.yaw = Math.PI / 2; // now face away from the next shot's line... it comes from the back-right
+  const b2 = fire(p.x + 18, p.z + 3);
+  for (let i = 0; i < 12; i++) g.tick(TICK_DT);
+  check(b2.team === 'enemy' || !g.bolts.includes(b2), 'blade: a bolt from behind still gets through');
+  p.drawn = false; p.yaw = 0;
+  const b3 = fire(p.x + 3, p.z - 18);
+  for (let i = 0; i < 12; i++) g.tick(TICK_DT);
+  check(b3.team === 'enemy', 'blade: holstered, nothing is deflected');
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll class checks passed');

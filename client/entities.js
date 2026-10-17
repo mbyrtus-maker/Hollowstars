@@ -1,8 +1,8 @@
 // Snapshot interpolation and rendering of every networked entity.
 import * as THREE from 'three';
 import { K, F, PLAYER_COLORS, BLADE_COLORS } from '../shared/config.js';
-import { lerp, lerpAngle, clamp } from '../shared/math.js';
-import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup } from './render/models.js';
+import { lerp, lerpAngle, clamp, angleDiff } from '../shared/math.js';
+import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup, makeLandspeeder, makeHauler } from './render/models.js';
 import { Humanoid } from './render/humanoid.js';
 
 const HUMAN = { [K.PLAYER]: 'player', [K.LANCER]: 'lancer', [K.OFFICER]: 'officer', [K.CIVILIAN]: 'civilian', [K.MERCHANT]: 'merchant', [K.INFORMANT]: 'informant', [K.PRISONER]: 'prisoner', [K.BARTENDER]: 'bartender' };
@@ -30,7 +30,7 @@ export class Entities {
       let v = this.views.get(id);
       if (!v) {
         if (kind === K.PLAYER && !this.roster.has(id) && id !== this.myId) continue;
-        v = this.create(id, kind, a1);
+        v = this.create(id, kind, a1, a2);
         if (!v) continue;
         this.views.set(id, v);
       }
@@ -41,10 +41,10 @@ export class Entities {
     for (const [id, v] of this.views) if (!seen.has(id)) this.destroy(v);
   }
 
-  create(id, kind, a1) {
-    let model, human = null, critter = null;
+  create(id, kind, a1, a2) {
+    let model, human = null, critter = null, riders = null;
     if (HUMAN[kind]) {
-      const opts = { variant: kind === K.PLAYER ? id : a1 || id };
+      const opts = { variant: kind === K.PLAYER ? id : a1 || id, role: kind === K.CIVILIAN ? a2 | 0 : 0 };
       if (kind === K.PLAYER) {
         const r = this.roster.get(id);
         const c = r ? r.color : 0;
@@ -57,9 +57,10 @@ export class Entities {
     else if (kind === K.CAMERA) model = makeSecCam();
     else if (kind === K.GRENADE) model = makeGrenade();
     else if (kind === K.PICKUP) model = makePickup(a1);
+    else if (kind === K.TRAFFIC) ({ model, riders } = makeTraffic(a1, a2));
     else return null;
     this.scene.add(model);
-    return { id, kind, model, human, critter, buf: [], x: 0, y: 0, z: 0, yaw: 0, speed: 0, flags: 0, hp: 100, a1: 0, a2: 0, bubble: null, bubbleT: 0, lastSwingSeen: null };
+    return { id, kind, model, human, critter, riders, buf: [], x: 0, y: 0, z: 0, yaw: 0, speed: 0, flags: 0, hp: 100, a1: 0, a2: 0, bubble: null, bubbleT: 0, lastSwingSeen: null };
   }
 
   destroy(v) {
@@ -96,10 +97,21 @@ export class Entities {
       else if (local && local.vehicleId && v.id === local.vehicleId) s = local.vehicleState;
       else s = this.sample(v, rt);
       if (!s) continue;
-      const px = v.x, pz = v.z;
+      const px = v.x, pz = v.z, pyaw = v.yaw, pspeed = v.speed;
       v.x = s.x; v.y = s.y; v.z = s.z; v.yaw = s.yaw;
-      const inst = dt > 0 ? Math.hypot(v.x - px, v.z - pz) / dt : 0;
+      const ddx = v.x - px, ddz = v.z - pz, dd = Math.hypot(ddx, ddz);
+      const inst = dt > 0 ? dd / dt : 0;
       v.speed = lerp(v.speed, Math.min(inst, 60), Math.min(1, dt * 10));
+      // motion relative to facing, turn rate and acceleration drive the gait and lean
+      if (dt > 0) {
+        if (dd > 1e-3 && dd < 5) {
+          const sy = Math.sin(v.yaw), cy = Math.cos(v.yaw);
+          v.fwd = lerp(v.fwd ?? 1, (-ddx * sy - ddz * cy) / dd, Math.min(1, dt * 8));
+          v.side = lerp(v.side ?? 0, (ddx * cy - ddz * sy) / dd, Math.min(1, dt * 8));
+        }
+        v.turn = lerp(v.turn || 0, clamp(angleDiff(pyaw, v.yaw) / dt, -6, 6), Math.min(1, dt * 6));
+        v.accel = lerp(v.accel || 0, clamp((v.speed - pspeed) / dt, -12, 12), Math.min(1, dt * 4));
+      }
       const fl = s.flags ?? v.flags;
       const m = v.model;
       const cd = cam ? Math.hypot(v.x - cam.position.x, v.z - cam.position.z) : 0;
@@ -112,6 +124,7 @@ export class Entities {
       if (v.human) this.animateHuman(v, s, fl, dt, t, isMe, local);
       else if (v.critter) v.critter.update(dt, { speed: v.speed, dead: !!(fl & F.DEAD), work: !!(fl & F.WORK), flee: !!(fl & F.FLEE) }, t);
       else if (v.kind === K.SPEEDER) this.animateSpeeder(v, dt, t);
+      else if (v.kind === K.TRAFFIC) this.animateTraffic(v, fl, dt, t);
       else if (v.kind === K.CAMERA) this.animateCam(v, fl, t);
       else if (v.kind === K.GRENADE) { m.userData.light.visible = Math.sin(t * 22) > 0; m.rotation.x += dt * 9; }
       else if (v.kind === K.PICKUP) { m.position.y = v.y + 0.25 + Math.sin(t * 3) * 0.08; m.rotation.y = t * 1.5; }
@@ -124,8 +137,9 @@ export class Entities {
     const kind = v.kind;
     const guard = kind === K.LANCER || kind === K.OFFICER;
     let weapon = null;
+    const hunter = kind === K.CIVILIAN && h.weaponKind === 'blaster';
     if (kind === K.PLAYER) weapon = h.weaponKind;
-    else if (guard) weapon = 'blaster';
+    else if (guard || hunter) weapon = 'blaster';
     let speed = v.speed;
     if (isMe) speed = local.speed;
     const driving = !!(fl & F.DRIVING);
@@ -144,9 +158,10 @@ export class Entities {
       if (v.bubble3d) { v.bubble3d.visible = on; v.bubble3d.material.opacity = 0.09 + Math.sin(t * 6) * 0.03; }
     }
     h.update(dt, {
-      speed, crouch: !!(fl & F.CROUCH) && kind !== K.INFORMANT, sit: kind === K.INFORMANT || (kind === K.CIVILIAN && (fl & F.CROUCH) && !(fl & F.FLEE)), cower: kind === K.PRISONER && (fl & F.CROUCH) && speed < 0.3,
+      speed, crouch: !!(fl & F.CROUCH) && kind !== K.INFORMANT, sit: kind === K.INFORMANT || (kind === K.CIVILIAN && !hunter && (fl & F.CROUCH) && !(fl & F.FLEE)), cower: kind === K.PRISONER && (fl & F.CROUCH) && speed < 0.3,
+      fwd: v.fwd ?? 1, side: v.side ?? 0, turn: v.turn || 0, accel: v.accel || 0,
       pitch: kind === K.PLAYER ? (isMe ? local.pitch : (s.a2 || 0) / 100) : 0,
-      weapon, drawn: kind === K.PLAYER ? !!(fl & F.DRAWN) : undefined, block: !!(fl & F.BLOCK), swing: kind === K.PLAYER ? (isMe ? local.swingCount : s.a1) : undefined,
+      weapon, drawn: kind === K.PLAYER ? !!(fl & F.DRAWN) : hunter ? !!(fl & F.AIM) : undefined, block: !!(fl & F.BLOCK), swing: kind === K.PLAYER ? (isMe ? local.swingCount : s.a1) : undefined,
       downed: !!(fl & F.DOWNED), dead: !!(fl & F.DEAD), driving, talk: !!(fl & F.TALK), work: !!(fl & F.WORK),
       flee: !!(fl & F.FLEE), stagger: !!(fl & F.STAGGER), air: kind === K.PLAYER && !!(fl & F.AIR) && !driving,
       aim: guard ? !!(fl & F.ALERT) : isMe ? local.aiming : true, lowReady: guard && !(fl & F.ALERT),
@@ -189,6 +204,22 @@ export class Entities {
     if (v.speed > 6 && Math.random() < dt * v.speed * 0.5) this.fx.dust(v.x - Math.sin(v.yaw) * -1.2, v.y - 1.0, v.z - Math.cos(v.yaw) * -1.2, 1, 1.2);
   }
 
+  animateTraffic(v, fl, dt, t) {
+    const veh = v.model.userData.vehicle, body = veh.userData.body;
+    v.bank = lerp(v.bank || 0, clamp(-(v.turn || 0) * Math.min(1, v.speed / 8) * (v.a1 === 1 ? 0.22 : 0.06), -0.45, 0.45), Math.min(1, dt * 5));
+    body.rotation.z = v.bank;
+    body.rotation.x = clamp(-(v.accel || 0) * 0.012, -0.08, 0.08);
+    body.position.y = Math.sin(t * 2.1 + v.id) * 0.04;
+    veh.userData.under.material.opacity = 0.3 + Math.sin(t * 18 + v.id) * 0.06 + Math.min(0.3, v.speed / 60);
+    const braking = !!(fl & F.AIM) || v.speed < 0.3;
+    if (veh.userData.brake) for (const b of veh.userData.brake) b.material.color.setHex(0xff2020).multiplyScalar(braking ? 3 : 0.6);
+    if (v.speed > 5 && Math.random() < dt * v.speed * 0.25) this.fx.dust(v.x + Math.sin(v.yaw) * 2, v.y - 0.8, v.z + Math.cos(v.yaw) * 2, 1, 1);
+    for (const r of v.riders) { r.human.update(dt, { speed: 0, driving: true, turn: v.turn || 0 }, t + v.id); r.human.root.rotation.z = v.bank * 0.6; }
+  }
+
+  // The arc blade snapping to a bolt
+  parry(id) { const v = this.views.get(id); if (v && v.human) v.human.parryT = 0; }
+
   animateCam(v, fl, t) {
     const head = v.model.userData.head;
     v.model.rotation.y = 0;
@@ -218,7 +249,7 @@ export class Entities {
     let best = maxT, hit = null;
     for (const v of this.views.values()) {
       if (v.id === skipId || v.kind === K.PICKUP || v.kind === K.GRENADE || (v.flags & F.DEAD)) continue;
-      const r = v.kind === K.SPEEDER ? 1.2 : v.kind === K.CRITTER ? 0.6 : 0.45;
+      const r = v.kind === K.SPEEDER ? 1.2 : v.kind === K.TRAFFIC ? 1.3 : v.kind === K.CRITTER ? 0.6 : 0.45;
       const y0 = v.y, y1 = v.y + (v.kind === K.CAMERA ? 0.4 : v.kind === K.CRITTER ? 1 : (v.flags & F.CROUCH) ? 1.1 : 1.8);
       // closest approach of ray to vertical axis
       const ox = o.x - v.x, oz = o.z - v.z;
@@ -235,4 +266,24 @@ export class Entities {
     }
     return hit ? { t: best, view: hit } : null;
   }
+}
+
+// A townsperson's ride: bike, landspeeder or cargo hauler, with a driver (and sometimes a passenger)
+const PAINT = [0xb8a27e, 0x7a8e9a, 0xa04a3a, 0xd8d2c4, 0x5a6a4a, 0x3a4a6a, 0xc98d2e, 0x8a6a8a];
+function makeTraffic(kind, seed) {
+  const model = new THREE.Group();
+  const paint = PAINT[seed % PAINT.length];
+  const vehicle = kind === 1 ? makeSpeeder(paint, PAINT[(seed >> 3) % PAINT.length]) : kind === 2 ? makeLandspeeder(paint) : makeHauler(PAINT[(seed >> 2) % PAINT.length], seed);
+  model.add(vehicle);
+  model.userData.vehicle = vehicle;
+  const riders = [];
+  const seats = kind === 1 ? [[0, 0.31, 0.45]] : vehicle.userData.seats;
+  seats.forEach(([x, y, z], i) => {
+    if (i > 0 && seed % 5 > 1) return; // passenger sometimes
+    const human = new Humanoid('civilian', { variant: seed * 3 + i * 17 + 5 });
+    human.root.position.set(x, y - 0.42, z);
+    vehicle.userData.body.add(human.root);
+    riders.push({ human });
+  });
+  return { model, riders };
 }

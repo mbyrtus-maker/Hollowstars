@@ -2,7 +2,7 @@
 // Run: node tools/missions-test.js
 import { Game } from '../shared/sim/game.js';
 import { K, TICK_DT } from '../shared/config.js';
-import { groundAt } from '../shared/world.js';
+import { groundAt, DUSK_SHIFT as S } from '../shared/world.js';
 
 let failures = 0;
 const check = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) failures++; };
@@ -42,7 +42,7 @@ function use(g, p, holdSeconds = 0) {
   const c = use(g, p);
   run(g, 0.2);
   check(g.party.items.cellcode, `rescue: Oru hands over the cell code (${c && c.id})`);
-  place(g, p, 150, -11); run(g, 0.3);
+  place(g, p, 150 + S, -11); run(g, 0.3);
   check(g.mission.done[1], 'rescue: infiltrating the garrison completes step 2');
   place(g, p, W.doors.cellblock.x, W.doors.cellblock.z + 1.4); face(p, W.doors.cellblock.x, W.doors.cellblock.z);
   use(g, p); run(g, 0.2);
@@ -52,14 +52,14 @@ function use(g, p, holdSeconds = 0) {
   const pr = g.ents.get(g.prisonerId);
   check(W.doors.cell.open && pr.ai.state === 'follow', 'rescue: cutting the lock frees Ilsa, who follows');
   // Walk toward the LZ in steps; she should keep up
-  const path = [[151, -11], [145, -4], [135, 0], [121, 0], [108, 15], [95, 35], [85, 52], [78, 62], [78, 64]];
+  const path = [[151 + S, -11], [145 + S, -4], [135 + S, 0], [121 + S, 0], [292, 14], [272, 34], [254, 52], [240, 62], [238, 64]];
   let status = 'active';
   let sawHint = false;
   for (const [x, z] of path) {
-    if (!W.doors.gate.open && x < 140) {
+    if (!W.doors.gate.open && x < 140 + S) {
       const view = g.globalState().m.steps[g.mission.step][0];
       sawHint = sawHint || /sealed/.test(view);
-      place(g, p, 128.6, 5); face(p, 127.6, 5); use(g, p, 1.5); run(g, 0.2);
+      place(g, p, W.pois.gatePanel.x + 1, W.pois.gatePanel.z); face(p, W.pois.gatePanel.x, W.pois.gatePanel.z); use(g, p, 1.5); run(g, 0.2);
     }
     place(g, p, x, z);
     for (let i = 0; i < 6 / TICK_DT && status === 'active'; i++) { g.tick(TICK_DT); status = g.mission ? g.mission.status : status; }
@@ -112,13 +112,13 @@ function use(g, p, holdSeconds = 0) {
   check(g.mission && g.mission.id === 'sabotage', 'sabotage: accepted');
   p.grenades = 6;
   // Throw a charge at the mast
-  place(g, p, 196, -6); face(p, 204, -6);
+  place(g, p, 196 + S, -6); face(p, 204 + S, -6);
   g.handle('p1', { t: 'gren', o: [p.x, p.y + 1.5, p.z], d: [1, 0.05, 0] });
   run(g, 3);
   g.damageDestructible(W.destructibles.mast, 999, p);
   run(g, 0.5);
   check(W.destructibles.mast.destroyed, 'sabotage: comms mast toppled');
-  place(g, p, 190, 10); face(p, 202, 10);
+  place(g, p, 190 + S, 10); face(p, 202 + S, 10);
   g.handle('p1', { t: 'gren', o: [p.x, p.y + 1.5, p.z], d: [0.97, 0.15, 0] });
   run(g, 3.5);
   const tanks = [0, 1, 2, 3].filter((i) => W.destructibles['tank' + i].destroyed).length;
@@ -137,10 +137,10 @@ function use(g, p, holdSeconds = 0) {
 // ---------------------------------------------------------------- stealth sanity
 {
   const { g, p } = setup();
-  place(g, p, 224, -22); p.crouch = true;
+  place(g, p, 224 + S, -22); p.crouch = true;
   run(g, 5);
   check(!g.alarm.active, `stealth: crouching in the shadows outside the culvert stays unseen (vis ${p.visibility.toFixed(2)})`);
-  place(g, p, 140, 0); p.crouch = false;
+  place(g, p, 140 + S, 0); p.crouch = false;
   run(g, 8);
   check(g.alarm.active, 'stealth: standing in the floodlit courtyard gets you spotted and the alarm raised');
 }

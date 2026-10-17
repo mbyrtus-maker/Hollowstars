@@ -8,11 +8,19 @@ import '../layouts.js';
 import { stepSpeeder, SPEEDER } from '../vehicles.js';
 import { spawnGuard, garrisonRoster, spawnTown, spawnWildlife, spawnPrisoner, spawnCaptives, updateNPC, updateHerds, guardHearNoise, civilianScare, guardOnDamaged, alertGuardTo, isUnaware, pick } from './ai.js';
 import { stepBolts, stepGrenades, explode, bladeSwing, powerPush, powerPull } from './combat.js';
+import { spawnWorkers } from './ai.js';
+import { spawnTraffic, spawnVehicle, updateTraffic } from './traffic.js';
+import { padState } from '../spaceport.js';
+import { GOODS, RECIPES, UPGRADES, TOWNS, newMarket, marketTick, makerWork, shipTrade, marketView, priceTable, quoteBuy, quoteSell, packCount, canAfford, spend, gearBonus } from '../economy.js';
 import { startMission, missionTick, missionView, abandonMission, contactTalk, contactLabel, terminalUse, missionHome, missionLeftPlanet } from './missions.js';
 import { PLANETS, SHIP } from '../planets.js';
 import { applyLoadout, useAbility, weaponStats, active, breakCloak, tickClass, absorbDamage, cooldownView, updateHunters, classOf } from './classes.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
+const VIEW_IN = 240, VIEW_OUT = 275; // snapshot interest radius
+const WEAPON_KINDS = new Set(['bolt', 'blade', 'knife', 'execute']);
+const NODE_LABEL = { grain: 'Help with the harvest', ore: 'Dig out the ore seam', ice: 'Cut coolant ice', resin: 'Tap the resin', timber: 'Saw timber from the log' };
+const NODE_YIELD = { grain: 2, ore: 2, ice: 2, resin: 1, timber: 2 };
 const REQ_NAMES = { cellcode: 'cell code', keycard: 'vault keycard', vaultcode: 'vault code' };
 const CONTACT_IDLE = {
   vessa: ['The harvester eats a grove a day. Lowmarsh will drown in its own mud.', 'Keep your voice down. Kade has ears in the reeds.', 'If you came to help, help. If not, keep walking.'],
@@ -51,10 +59,17 @@ export class Game {
     this._players = [];
     this.speederSpawns = this.world.pois.speeders || [];
     this.respawnQueue = [];
+    this.markets = {};
+    this.mkT = 0;
+    this.padSeen = [];
+    this.nodeUntil = new Map();
     spawnTown(this);
+    spawnWorkers(this);
     spawnWildlife(this);
+    spawnTraffic(this);
     this.speederSpawns.forEach((s, i) => this.spawnSpeeder(i));
     this.resetGarrison(null);
+    this.mkView = marketView(this.market());
     this.rebuildSpatial();
   }
 
@@ -152,8 +167,10 @@ export class Game {
       downed: false, bleed: 0, vehicle: null, tpSeq: 1, lastInputT: 0, lastShot: -9, lastSwing: -9, lastGren: -9,
       swingCount: 0, cd: { push: 0, pull: 0, shroud: 0 }, shroudUntil: 0, focusUsedAt: -9, lastHurt: -9,
       healT: 0, use: null, interact: null, visibility: 1, impulseT: -9, kills: 0, stats: { shots: 0 },
+      pack: { ...(prof.pack || {}) }, gear: { weapon: 0, armor: 0, speeder: 0, ship: 0, ...(prof.gear || {}) },
     });
     applyLoadout(p, info.cls, prof);
+    this.applyGear(p, true);
     this.clients.set(cid, p.id);
     this.rebuildSpatial();
     this.lastGlobal = '';
@@ -170,6 +187,7 @@ export class Game {
     this.clients.delete(cid);
     if (!p) return;
     if (p.vehicle) { const v = this.ents.get(p.vehicle); if (v) v.driver = null; }
+    if (this.interest) this.interest.delete(cid);
     this.persist(p);
     this.removeEnt(p);
     this.rebuildSpatial();
@@ -178,7 +196,110 @@ export class Game {
   }
 
   persist(p) {
-    this.saveProfile(p.name, { credits: p.credits, grenades: p.grenades, medpacks: p.medpacks, upgrades: p.upgrades, cls: p.cls });
+    this.saveProfile(p.name, { credits: p.credits, grenades: p.grenades, medpacks: p.medpacks, upgrades: p.upgrades, cls: p.cls, pack: p.pack, gear: p.gear });
+  }
+
+  // ---------------------------------------------------------------- economy
+
+  market(planet = this.planet) { return (this.markets[planet] ||= newMarket(planet)); }
+  cargoCap(p) { return gearBonus.cargo(p.gear.ship); }
+  applyGear(p, heal) {
+    const max = PLAYER.maxHp + gearBonus.hp(p.gear.armor);
+    if (heal) p.hp = max; else p.hp = Math.min(max, p.hp + Math.max(0, max - p.maxHp));
+    p.maxHp = max;
+  }
+  // Add goods to a player's pack, as much as fits. Returns how many went in.
+  give(p, good, n, quiet) {
+    const room = this.cargoCap(p) - packCount(p.pack);
+    const k = Math.max(0, Math.min(n, room));
+    if (k > 0) { p.pack[good] = (p.pack[good] || 0) + k; this.persist(p); }
+    if (!quiet) this.pnote(p, k > 0 ? `+${k} ${GOODS[good].name}${k < n ? ' (pack full)' : ''}` : 'Your pack is full.', k > 0 ? 'loot' : 'warn');
+    return k;
+  }
+  // A worker finished a job: their output lands in the town market
+  econDeliver(e, give) {
+    const m = this.market();
+    if (give.make) { if (this.rng() < 0.45) makerWork(m); return; }
+    for (const [g, n] of Object.entries(give)) m.stock[g] = (m.stock[g] || 0) + n;
+  }
+  nearShop(p, kind) {
+    const T = TOWNS[this.planet];
+    const id = kind === 'exchange' ? T.exchange : T.workshop;
+    return this.nearby(p.x, p.z, 7).find((e) => e.kind === K.MERCHANT && !e.dead && e.merchant === id);
+  }
+  onTrade(p, g, n) {
+    if (!GOODS[g] || !Number.isInteger(n) || n === 0 || Math.abs(n) > 50) return;
+    if (!this.nearShop(p, 'exchange')) { this.pnote(p, 'Trade at the exchange.', 'warn'); return; }
+    const m = this.market();
+    if (n > 0) {
+      n = Math.min(n, Math.floor(m.stock[g]), this.cargoCap(p) - packCount(p.pack));
+      if (n <= 0) { this.pnote(p, m.stock[g] < 1 ? 'Sold out.' : 'Your pack is full.', 'warn'); return; }
+      const cost = quoteBuy(m, g, n);
+      if (cost > p.credits) { this.pnote(p, 'Not enough credits.', 'warn'); return; }
+      m.stock[g] -= n;
+      p.pack[g] = (p.pack[g] || 0) + n;
+      this.addCredits(p, -cost);
+    } else {
+      n = Math.min(-n, p.pack[g] || 0);
+      if (n <= 0) return;
+      const got = quoteSell(m, g, n);
+      m.stock[g] += n;
+      p.pack[g] -= n;
+      if (!p.pack[g]) delete p.pack[g];
+      this.addCredits(p, got);
+    }
+    this.mkView = marketView(m);
+    this.globalDirty = true;
+  }
+  onCraft(p, r, n) {
+    const R = RECIPES[r];
+    if (!R || !Number.isInteger(n) || n < 1 || n > 20) return;
+    if (!this.nearShop(p, 'workshop')) { this.pnote(p, 'Make parts at a workshop.', 'warn'); return; }
+    let made = 0;
+    for (let i = 0; i < n; i++) {
+      if (!canAfford(p.pack, R.in) || p.credits < R.fee) break;
+      spend(p.pack, R.in);
+      p.pack[r] = (p.pack[r] || 0) + 1;
+      p.credits -= R.fee;
+      made++;
+    }
+    if (!made) { this.pnote(p, p.credits < R.fee ? 'Not enough credits for the bench fee.' : 'You are missing materials.', 'warn'); return; }
+    this.persist(p);
+    this.pnote(p, `Made ${made} ${GOODS[r].name} (-${R.fee * made} cr)`, 'loot');
+  }
+  onUpgrade(p, k) {
+    const U = UPGRADES[k];
+    if (!U) return;
+    if (!this.nearShop(p, 'workshop')) { this.pnote(p, 'Upgrades are fitted at a workshop.', 'warn'); return; }
+    const t = p.gear[k] || 0;
+    const tier = U.tiers[t];
+    if (!tier) { this.pnote(p, 'Already at the top tier.', 'warn'); return; }
+    if (!canAfford(p.pack, tier.cost)) { this.pnote(p, 'You are missing parts.', 'warn'); return; }
+    if (p.credits < tier.cr) { this.pnote(p, 'Not enough credits.', 'warn'); return; }
+    spend(p.pack, tier.cost);
+    p.gear[k] = t + 1;
+    if (k === 'armor') this.applyGear(p, false);
+    this.addCredits(p, -tier.cr);
+    this.pnote(p, `${U.name} upgraded to tier ${t + 1}: ${tier.fx}`, 'objective');
+    this.globalDirty = true;
+  }
+  economyTick(dt) {
+    this.mkT += dt;
+    if (this.mkT < 1) return;
+    const step = this.mkT;
+    this.mkT = 0;
+    const m = this.market();
+    marketTick(m, step, this.rng);
+    // trader ships landing at the spaceport bring and take goods
+    this.world.pads.forEach((pad, i) => {
+      const st = padState(i, this.time);
+      if (st.phase === 'landed' && this.padSeen[i] !== st.n) {
+        this.padSeen[i] = st.n;
+        if (this.time > 5) { shipTrade(m, this.rng); m.lastShip = this.time; }
+      }
+    });
+    if (this.tickN % 60 < 2) { this.mkView = marketView(m); this.globalDirty = true; }
+    if (this.time - (m.refAt || 0) > 120) { m.ref = priceTable(m); m.refAt = this.time; }
   }
   addCredits(p, n) {
     p.credits = Math.max(0, Math.round(p.credits + n));
@@ -221,6 +342,9 @@ export class Game {
       case 'accept': this.onAccept(p, msg.id); break;
       case 'abandon': abandonMission(this); break;
       case 'travel': this.startTravel(p, String(msg.to || '')); break;
+      case 'trade': if (alive) this.onTrade(p, String(msg.g || ''), msg.n | 0); break;
+      case 'craft': if (alive) this.onCraft(p, String(msg.r || ''), msg.n | 0); break;
+      case 'upg': if (alive) this.onUpgrade(p, String(msg.k || '')); break;
       case 'disembark': if (p.aboard && !this.travel) this.disembark(p); break;
       case 'chat': {
         const m = String(msg.m || '').slice(0, 140).trim();
@@ -303,7 +427,7 @@ export class Game {
     const o = Array.isArray(m.o) && dist2(v.x, v.z, +m.o[0], +m.o[2]) < 5 ? m.o.map(Number) : [v.x, v.y + 0.4, v.z];
     const d = this.validDir(m.d);
     if (!d) return;
-    this.spawnBolt(p, o[0], o[1], o[2], d[0], d[1], d[2], W.boltSpeed, W.damage, 'player', W.noise, m.c | 0);
+    this.spawnBolt(p, o[0], o[1], o[2], d[0], d[1], d[2], W.boltSpeed, W.damage * gearBonus.cannon(p.gear.speeder), 'player', W.noise, m.c | 0);
   }
   validOrigin(p, o, maxD) {
     if (Array.isArray(o) && o.length === 3 && o.every((v) => Number.isFinite(+v))) {
@@ -378,6 +502,7 @@ export class Game {
 
   damage(e, amt, src, info = {}) {
     if (e.dead || amt <= 0) return;
+    if (src && src.kind === K.PLAYER && src.gear && WEAPON_KINDS.has(info.kind) && !info.deflected) amt *= gearBonus.damage(src.gear.weapon);
     if (e.kind === K.PLAYER) {
       if (e.downed || e.aboard) return;
       amt = absorbDamage(this, e, amt);
@@ -393,6 +518,12 @@ export class Game {
     if (e.kind === K.SPEEDER) {
       e.hp -= amt;
       if (e.hp <= 0) this.destroySpeeder(e, src);
+      return;
+    }
+    if (e.kind === K.TRAFFIC) {
+      e.hp -= amt;
+      for (const o of this.nearby(e.x, e.z, 25)) if (o.kind === K.CIVILIAN) civilianScare(this, o, e.x, e.z);
+      if (e.hp <= 0) this.destroyTraffic(e, src);
       return;
     }
     e.hp -= amt;
@@ -419,6 +550,7 @@ export class Game {
       if (killer) {
         killer.kills++;
         this.addCredits(killer, e.kind === K.OFFICER ? 150 : 25);
+        if (e.kind !== K.CAMERA && this.rng() < (e.kind === K.OFFICER ? 1 : 0.45)) this.give(killer, 'scrap', e.kind === K.OFFICER ? 3 : 1);
         if (info.silent) this.pnote(killer, 'Silent takedown', 'stealth');
       }
       if (e.hasKeycard) { e.hasKeycard = false; this.spawnPickup('keycard', e.x, e.y + 1, e.z, 0, 3, 0); }
@@ -430,7 +562,8 @@ export class Game {
       // townsfolk come back after a while
       this.respawnQueue.push({ at: this.time + 60, kind: e.kind, snapshot: { ...e, ai: { ...e.ai, fleeUntil: 0, path: null, wait: 2 } } });
     } else if (e.kind === K.CRITTER) {
-      this.respawnQueue.push({ at: this.time + 45, kind: e.kind, snapshot: { ...e, ai: { ...e.ai, fleeUntil: 0 } } });
+      this.respawnQueue.push({ at: this.time + 45, kind: e.kind, snapshot: { ...e, claimed: 0, ai: { ...e.ai, fleeUntil: 0 } } });
+      if (killer) { this.give(killer, 'meat', 1, true); this.give(killer, 'hide', 1, true); this.pnote(killer, '+1 Game meat, +1 Hides', 'loot'); e.claimed = -1; this.later(4, () => this.removeEnt(e)); }
     }
     this.globalDirty = true;
   }
@@ -442,6 +575,7 @@ export class Game {
     if (d.hp > 0) { this.event(['dhit', d.id]); return; }
     d.destroyed = true;
     this.event(['destroy', d.id]);
+    if (src && src.kind === K.PLAYER) this.give(src, 'scrap', 2);
     if (d.kind === 'tank') {
       setTimeout0(this, 0.15, () => explode(this, d.x, d.y + 2.5, d.z, 9.5, 160, src, 'tank'));
     } else if (d.kind === 'mast') {
@@ -450,6 +584,14 @@ export class Game {
       this.note('Comms mast down — the garrison cannot call reinforcements.', 'objective');
     }
     if (!this.alarm.active) this.triggerAlarm('sabotage');
+  }
+
+  destroyTraffic(v, src) {
+    v.dead = true;
+    explode(this, v.x, v.y + 0.5, v.z, v.vk === 'bike' ? 5 : 7, 80, src, 'speeder');
+    this.removeEnt(v);
+    if (src && src.kind === K.PLAYER) { this.addCredits(src, -150); this.pnote(src, 'That was somebody\'s ride. And somebody.', 'fail'); }
+    this.respawnQueue.push({ at: this.time + 40, kind: K.TRAFFIC, route: v.route, slot: v.slot });
   }
 
   destroySpeeder(v, src) {
@@ -550,6 +692,11 @@ export class Game {
     if (p.aboard) { if (!this.travel) out.push({ id: 'nav', x: p.x, z: p.z, label: `Open the ${SHIP.name}'s nav console`, hold: 0, range: 99, force: true }); return out; }
     if (p.downed) return out;
     if (W.pois.board) add('board', W.pois.board.x, W.pois.board.z, 'Browse the job board');
+    for (const n of W.nodes) {
+      if (dist2(p.x, p.z, n.x, n.z) > 3) continue;
+      if ((this.nodeUntil.get(n.id) || 0) > this.time) continue;
+      add('node:' + n.id, n.x, n.z, NODE_LABEL[n.kind], 2.2, 2.6);
+    }
     if (W.pois.ship && !this.travel) add('ship', W.pois.ship.x, W.pois.ship.z, `Board the ${SHIP.name}`, 0, 4.2);
     for (const t of W.terminals) {
       if (dist2(p.x, p.z, t.x, t.z) > 4) continue;
@@ -574,7 +721,7 @@ export class Game {
       else if (e.kind === K.PLAYER && e.downed) add('revive:' + e.id, e.x, e.z, `Revive ${e.name}`, p.cls === 'medic' ? 1 : PLAYER.reviveTime, 2.4);
       else if (e.kind === K.PICKUP) add('pick:' + e.id, e.x, e.z, e.item === 'keycard' ? 'Take the vault keycard' : 'Take the data core', 0, 2.2);
       else if (e.dead) continue;
-      else if (e.kind === K.MERCHANT) add('npc:' + e.id, e.x, e.z, `Trade with ${MERCHANTS[e.merchant].name}`, 0, 3.2);
+      else if (e.kind === K.MERCHANT) { const M = MERCHANTS[e.merchant]; add('npc:' + e.id, e.x, e.z, M.type === 'exchange' ? `Trade goods with ${M.name}` : M.type === 'workshop' ? `Use ${M.name}'s workshop` : `Trade with ${M.name}`, 0, M.type ? 4.2 : 3.2); }
       else if (e.kind === K.INFORMANT) add('npc:' + e.id, e.x, e.z, contactLabel(this, e.contact), 0, 2.8);
       else if (e.kind === K.BARTENDER) add('npc:' + e.id, e.x, e.z, 'Order a drink (5cr)', 0, 3.0);
       else if (e.kind === K.CIVILIAN) add('npc:' + e.id, e.x, e.z, 'Talk', 0, 2.2);
@@ -617,7 +764,7 @@ export class Game {
       case 'board': this.sendTo(p.cid, { t: 'ui', ui: 'missions' }); break;
       case 'npc': {
         if (!ent) return;
-        if (ent.kind === K.MERCHANT) this.sendTo(p.cid, { t: 'ui', ui: 'shop', merchant: ent.merchant });
+        if (ent.kind === K.MERCHANT) { const ty = MERCHANTS[ent.merchant].type; this.sendTo(p.cid, { t: 'ui', ui: ty === 'exchange' ? 'market' : ty === 'workshop' ? 'workshop' : 'shop', merchant: ent.merchant }); }
         else if (ent.kind === K.INFORMANT) {
           if (!contactTalk(this, p, ent)) {
             if (ent.contact === 'oru') this.sendTo(p.cid, { t: 'ui', ui: 'missions' });
@@ -647,6 +794,12 @@ export class Game {
       }
       case 'gatepanel': setDoorOpen(W, 'gate', true); this.event(['door', 'gate', 1]); this.globalDirty = true; break;
       case 'ship': this.board(p); break;
+      case 'node': {
+        const n = W.nodes[+ref];
+        if (!n || (this.nodeUntil.get(n.id) || 0) > this.time) return;
+        if (this.give(p, n.kind, NODE_YIELD[n.kind]) > 0) { this.nodeUntil.set(n.id, this.time + 75); this.noise(n.x, n.y, n.z, 6, p, false); this.globalDirty = true; }
+        break;
+      }
       case 'nav': this.sendTo(p.cid, { t: 'ui', ui: 'nav' }); break;
       case 'term': {
         const term = W.terminals.find((t) => t.id === ref);
@@ -729,7 +882,8 @@ export class Game {
     if (to === this.planet) { this.pnote(p, `You're already on ${PLANETS[to].name}.`, 'warn'); return; }
     const missing = this.players().filter((q) => !q.aboard);
     if (missing.length) { this.pnote(p, `Waiting for ${missing.map((q) => q.name).join(', ')} to board.`, 'warn'); return; }
-    this.travel = { from: this.planet, to, at: this.time + 7.5 };
+    const tier = Math.max(0, ...this.players().map((q) => q.gear.ship || 0));
+    this.travel = { from: this.planet, to, at: this.time + gearBonus.jump(tier) };
     this.event(['travel', this.planet, to]);
     this.note(`The ${SHIP.name} lifts off for ${PLANETS[to].name}.`, 'objective');
     this.globalDirty = true;
@@ -747,9 +901,14 @@ export class Game {
     this.world = createWorld(to);
     useWorld(this.world);
     this.speederSpawns = this.world.pois.speeders || [];
+    this.padSeen = [];
+    this.nodeUntil = new Map();
     spawnTown(this);
+    spawnWorkers(this);
     spawnWildlife(this);
+    spawnTraffic(this);
     this.speederSpawns.forEach((s, i) => this.spawnSpeeder(i));
+    this.mkView = marketView(this.market());
     this.resetGarrison(this.mission && this.mission.status === 'active' && missionHome(this.mission.id) === to ? this.mission.id : null);
     for (const [cid] of this.clients) this.sendTo(cid, { t: 'planet', id: to });
     const sp = this.world.pois.spawn;
@@ -826,12 +985,14 @@ export class Game {
       if (this.time < r.at) continue;
       this.respawnQueue.splice(i, 1);
       if (r.kind === K.SPEEDER) this.spawnSpeeder(r.slot);
+      else if (r.kind === K.TRAFFIC) spawnVehicle(this, r.route, r.slot, true);
       else { const s = r.snapshot; delete s.id; this.spawn({ ...s, dead: false, hp: s.maxHp, flags: 0, stagger: 0 }); }
     }
     this.updatePlayers(dt);
     for (const e of [...this.ents.values()]) {
       if (e.kind === K.PLAYER || e.kind === K.GRENADE) continue;
       if (e.kind === K.SPEEDER) { this.updateSpeeder(e, dt); continue; }
+      if (e.kind === K.TRAFFIC) { updateTraffic(this, e, dt); continue; }
       if (e.kind === K.PICKUP) { this.updatePickup(e, dt); continue; }
       if (e.dead) {
         if (e.kind !== K.CAMERA) {
@@ -848,6 +1009,7 @@ export class Game {
     stepBolts(this, dt);
     stepGrenades(this, dt);
     this.updateAlarm(dt);
+    this.economyTick(dt);
     missionTick(this);
     this.broadcastSnapshot();
   }
@@ -967,6 +1129,9 @@ export class Game {
       party: this.players().map((p) => [p.id, p.name, p.color, Math.round(p.hp), p.downed ? 1 : 0, Math.round(p.credits), p.cls, p.aboard ? 1 : 0]),
       pl: this.planet,
       tr: this.travel ? [this.travel.to, Math.max(0, Math.round((this.travel.at - this.time) * 10) / 10)] : null,
+      mk: this.mkView,
+      ship: Math.round(this.time - this.market().lastShip),
+      nd: [...this.nodeUntil].filter(([, t]) => t > this.time).map(([id]) => id),
     };
   }
 
@@ -990,6 +1155,7 @@ export class Game {
       a2 = Math.round(e.pitch * 100);
     } else if (e.kind === K.CIVILIAN || e.kind === K.MERCHANT || e.kind === K.INFORMANT || e.kind === K.BARTENDER || e.kind === K.PRISONER || e.kind === K.CRITTER) {
       a1 = e.variant | 0;
+      if (e.kind === K.CIVILIAN) a2 = e.roleCode | 0;
     }
     if (e.dead) flags |= F.DEAD;
     if (e.stagger > 0) flags |= F.STAGGER;
@@ -997,9 +1163,10 @@ export class Game {
   }
 
   broadcastSnapshot() {
-    const ents = [];
-    for (const e of this.ents.values()) ents.push(this.encodeEnt(e));
-    const eJSON = JSON.stringify(ents);
+    // Each client hears about what's near them (with hysteresis so things don't flicker at the edge)
+    const enc = [];
+    for (const e of this.ents.values()) enc.push([e, JSON.stringify(this.encodeEnt(e))]);
+    this.interest ||= new Map();
     const evJSON = JSON.stringify(this.events);
     let gJSON = null;
     if (this.globalDirty || this.tickN % 10 === 0) {
@@ -1009,6 +1176,14 @@ export class Game {
     }
     for (const [cid, pid] of this.clients) {
       const p = this.ents.get(pid);
+      const prev = this.interest.get(cid) || new Set(), now = new Set(), parts = [];
+      const vx = p ? p.x : 0, vz = p ? p.z : 0;
+      for (const [e, s] of enc) {
+        const d = Math.hypot(e.x - vx, e.z - vz);
+        if (e.kind === K.PLAYER || d < VIEW_IN || (d < VIEW_OUT && prev.has(e.id))) { now.add(e.id); parts.push(s); }
+      }
+      this.interest.set(cid, now);
+      const eJSON = `[${parts.join(',')}]`;
       if (!p) continue;
       const pv = {
         hp: Math.round(p.hp), sh: Math.round(p.shield), shm: p.upgrades.shield ? 50 : 0, fo: Math.round(p.focus), ht: r2(p.heat), oh: p.overheated ? 1 : 0,
@@ -1018,6 +1193,7 @@ export class Game {
         cd: [r2(Math.max(0, p.cd.push - this.time)), r2(Math.max(0, p.cd.pull - this.time)), r2(Math.max(0, p.cd.shroud - this.time))],
         ev: this.priv.get(p.id) || [],
         ab: cooldownView(this, p), os: Math.round(p.overshield || 0), cls: p.cls,
+        pk: p.pack, gear: p.gear, cap: this.cargoCap(p), mhp: p.maxHp,
       };
       const msg = `{"t":"s","tm":${r2(this.time)},"e":${eJSON},"ev":${evJSON},"pv":${JSON.stringify(pv)}${gJSON ? `,"g":${gJSON}` : ''}}`;
       this.send(cid, msg);

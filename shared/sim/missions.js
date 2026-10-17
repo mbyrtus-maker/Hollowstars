@@ -5,7 +5,7 @@ import { dist2 } from '../math.js';
 import { PLANETS, SHIP } from '../planets.js';
 
 const inGarrison = (g, p) => { const r = g.world.regions.garrison; return p.x > r.minX && p.x < r.maxX && p.z > r.minZ && p.z < r.maxZ; };
-const inCommand = (p) => p.x > 174.5 && p.x < 197.5 && p.z > -29.5 && p.z < -12.5;
+const inCommand = (g, p) => { const r = g.world.regions.command; return p.x > r.minX && p.x < r.maxX && p.z > r.minZ && p.z < r.maxZ; };
 const anyPlayer = (g, fn) => g.players().some((p) => !p.downed && !p.dead && fn(p));
 const atLZ = (g, e) => dist2(e.x, e.z, g.world.pois.lz.x, g.world.pois.lz.z) < 8;
 const officer = (g) => g.ents.get(g.officerId);
@@ -23,7 +23,7 @@ const DEFS = {
       { text: 'Infiltrate Garrison Seven', wp: (g) => poi(g, 'gate'), done: (g) => anyPlayer(g, (p) => inGarrison(g, p)) },
       { text: 'Open the Detention Block with the cell code', wp: (g) => door(g, 'cellblock'), done: (g) => door(g, 'cellblock').open },
       { text: 'Cut Ilsa Varn out of her cell', wp: (g) => door(g, 'cell'), done: (g) => door(g, 'cell').open },
-      { text: 'Escort Ilsa to the Ridge LZ', alt: (g) => (!door(g, 'gate').open ? 'Escort Ilsa out — the gate is sealed, override its lock from inside' : null), wp: (g) => (!door(g, 'gate').open ? { x: 127.6, y: 10, z: 5 } : poi(g, 'lz')), done: (g) => { const p = g.ents.get(g.prisonerId); return p && !p.dead && atLZ(g, p); } },
+      { text: 'Escort Ilsa to the Ridge LZ', alt: (g) => (!door(g, 'gate').open ? 'Escort Ilsa out — the gate is sealed, override its lock from inside' : null), wp: (g) => (!door(g, 'gate').open ? { ...poi(g, 'gatePanel'), y: 10 } : poi(g, 'lz')), done: (g) => { const p = g.ents.get(g.prisonerId); return p && !p.dead && atLZ(g, p); } },
     ],
     fail: (g) => { const p = g.ents.get(g.prisonerId); return !p || p.dead ? 'Ilsa Varn was killed.' : null; },
   },
@@ -31,7 +31,7 @@ const DEFS = {
     ordered: true,
     steps: [
       { text: 'Lift the vault keycard from Commander Rhal (pickpocket, pull, or worse)', wp: (g) => { const o = officer(g); return o && !o.dead && o.hasKeycard ? o : g.pickupPos('keycard') || poi(g, 'gate'); }, done: (g) => g.party.items.keycard },
-      { text: 'Get inside the Command Center', wp: (g) => door(g, 'command'), done: (g) => anyPlayer(g, inCommand) },
+      { text: 'Get inside the Command Center', wp: (g) => door(g, 'command'), done: (g) => anyPlayer(g, (p) => inCommand(g, p)) },
       { text: 'Slice the vault console', wp: (g) => poi(g, 'vault'), done: (g) => g.party.items.datacore },
       { text: 'Get the data core to the Ridge LZ', wp: (g) => poi(g, 'lz'), done: (g) => g.party.items.datacore && anyPlayer(g, (p) => atLZ(g, p)) },
     ],

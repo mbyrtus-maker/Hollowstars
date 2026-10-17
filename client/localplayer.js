@@ -49,7 +49,7 @@ export class LocalPlayer {
   enterVehicle(id, s) {
     if (id) {
       this.vehicleId = id;
-      this.vehicle = { x: s[0], y: s[1], z: s[2], yaw: s[3], vx: s[4], vy: 0, vz: s[5], onGround: false };
+      this.vehicle = { x: s[0], y: s[1], z: s[2], yaw: s[3], vx: s[4], vy: 0, vz: s[5], onGround: false, tune: this.speederTune || 1 };
       this.crouch = false;
       this.drawn = false;
       this.yaw = s[3];
@@ -63,6 +63,7 @@ export class LocalPlayer {
     this.yaw = wrapAngle(this.yaw - input.mouse.dx * sens);
     this.pitch = clamp(this.pitch - input.mouse.dy * sens * (input.invertY ? -1 : 1), -1.45, 1.4);
     this.downed = !!(pv && pv.dn);
+    if (pv && pv.gear) { this.speederTune = 1 + 0.1 * (pv.gear.speeder || 0); if (this.vehicle) this.vehicle.tune = this.speederTune; }
     const b = this.body;
     if (input.hit('KeyV')) this.firstPerson = !this.firstPerson;
 

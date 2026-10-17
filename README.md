@@ -29,6 +29,7 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   - Hold right mouse to deflect enemy bolts.
   - A perfectly timed block sends the bolt back at the shooter.
   - It one-shots unaware guards for silent takedowns.
+  - While drawn, it catches bolts coming from the front on its own and sends them where you're looking, snapping onto a guard near your aim.
 - **The Current** (psionic powers): Push (Q), Pull (F), charged Leap (hold Space) and Shroud (X).
 - **Stealth.**
   - Guards have vision cones, and their suspicion fills over time.
@@ -41,6 +42,12 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   - Townsfolk wander the market, gossip, sit and flee from gunfire.
   - Merchants and Oru greet you, a bartender works the bar, and herds of dune skitters graze and bolt.
 - **Speeder bikes.** Hover physics, boost and forward cannons.
+- **Living towns.** Each town is ringed by streets and outer neighbourhoods. Townsfolk ride speeder bikes and landspeeders around the ring, and haulers run between town and the farms, mines and lodges. Traffic brakes and honks if you stand in the road. Shooting it up costs you. Each Concordance site is now a long ride from its town.
+- **Spaceports.** Every town has two extra pads where trader ships land, sit a while and leave. There are three designs: the Mulehorn bulk hauler, the Swiftwater courier skiff and the Pilgrim lander. Each trader that lands moves goods in and out of the town market.
+- **An economy.** People grow grain, mine ore and cut coolant ice, tap resin, log timber, and hunt the herds with rifles. Their output fills each town's stock. Makers at the workshop turn raw goods into parts. Prices float with stock, and each world is cheap in what it makes and dear in what it imports, so hauling cargo between planets pays.
+  - Gather it yourself: dig ore, cut ice, tap resin, saw timber and help with the harvest. Hunting gives meat and hides; Concordance kills give salvage.
+  - Trade at each town's **exchange**. Make **parts** (alloy plate, power cells, armorweave, circuit boards) at the **workshop**.
+  - Spend parts and credits on three tiers of upgrades for what you own: your **weapon** (+damage), **armor** (+health), **speeder tune** (+speed, +cannons) and your **Wayfarer berth** (+cargo, faster jumps). Your pack and gear are saved with your callsign.
 - **Three planets and a ship.** The crew starts with the *Wayfarer*, parked at each world's landing pad. Walk up the ramp to board, then use the nav console to pick a destination on the star map. It launches once the whole crew is aboard.
   - **Dusk Varo:** desert, the township of Khet, Garrison Seven.
   - **Thessaly Mire:** a drowned forest with solid trees to hide behind, the stilt village of Lowmarsh, and Harvester Station Kappa.
@@ -121,6 +128,10 @@ shared/            Runs on both the server and the browser
   math.js          Math, RNG, noise
   world.js         Per-planet terrain, Dusk Varo's layout, collision, raycasts, navigation grid and A*
   layouts.js       Thessaly Mire and Korrun Deep, built from the same kit
+  districts.js     Outer neighbourhoods, streets, farms, mines, lodges, markets, workshops, spaceports
+  economy.js       Goods, prices, recipes, upgrade tiers and town markets
+  spaceport.js     The trader ships' land-and-leave schedule (a pure function of game time)
+  sim/traffic.js   Townsfolk driving bikes, landspeeders and haulers along the streets
   planets.js       Planet roster (names, looks, star-map positions) and the Wayfarer
   vehicles.js      Speeder physics (shared for client-side prediction)
   sim/game.js      The authoritative game room: players, netcode validation, interactions, economy, alarms
@@ -140,6 +151,7 @@ tools/             Build script, simulation soak test, end-to-end mission test
 ```bash
 node tools/missions-test.js   # plays the three Dusk Varo missions end-to-end against the real simulation
 node tools/travel-test.js     # checks every planet's layout, flies the Wayfarer, plays both off-world missions
+node tools/economy-test.js    # workers, hunters, traders and traffic for 10 minutes per planet, then gather/trade/craft/upgrade
 node tools/classes-test.js    # exercises every class ability
 node tools/soak.js 240 korrun # 4 scripted bots for 4 minutes on a planet; reports tick cost and errors
 ```

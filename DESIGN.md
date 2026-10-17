@@ -149,10 +149,18 @@ Each rung uses the same entity, damage and networking model as infantry.
 
 ### Economy, merchants and progression
 
-- **In now.** Credits from jobs and bounties; two merchants selling consumables and permanent upgrades; profiles saved per callsign.
+**Built.** Each town keeps a stock of 8 raw goods (grain, meat, hides, ore, timber, resin, coolant ice, salvage) and 4 parts (alloy plate, power cell, armorweave, circuit board). The stock moves as follows:
+- Working townsfolk add to it as they finish jobs: farmers, miners, loggers, and hunters who actually stalk and shoot the herds.
+- Makers at the workshop turn surplus raw goods into whichever part the town is shortest on.
+- The population eats grain and meat.
+- Trader ships landing at the spaceport sell what's short and buy what's in surplus.
+
+Prices follow `base × world modifier × (target / stock)^0.6`, clamped. Each world makes some goods cheaply and imports the rest. The crew gathers at resource nodes, hunts, salvages, trades, makes parts, and fits three tiers of upgrades to four things they own: weapon, armor, speeder tune and Wayfarer berth.
+
+**Next.**
+
 - **Planned.**
-  - Loot and salvage.
-  - Crafting (blaster mods, arc blade crystals that set colour and stats).
+  - Crafting beyond parts (blaster mods, arc blade crystals that set colour and stats).
   - Reputation with factions, which unlocks merchants and missions.
   - Player-to-player trade.
   - A regional market where prices respond to what the crew sabotages. Burn the fuel depot and fuel gets expensive.

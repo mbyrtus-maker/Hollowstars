@@ -1,6 +1,7 @@
 // Layouts for the off-world planets. Built with the same kit as Dusk Varo.
-import { box, addBox, building, addDoor, lamp, crate, placeShip, registerLayout, terrainHeight, roadDistance, MAT } from './world.js';
+import { box, addBox, building, addDoor, lamp, crate, placeShip, registerLayout, terrainHeight, roadDistance, markWorld, shiftWorld, SITE_SHIFT, MAT } from './world.js';
 import { mulberry32, dist2 } from './math.js';
+import './districts.js';
 
 // Scatter solid props (trees, ice spires) across open ground, clear of settlements, sites and roads.
 function scatterProps(W, type, seed, count, span, clear, mk) {
@@ -111,7 +112,8 @@ registerLayout('thessaly', (W) => {
     W.decor.push({ type: 'tree', x, y, z, s, v: rng() });
   });
 
-  // Harvester Station Kappa
+  // Harvester Station Kappa (authored near x 85..155, shifted east by SITE_SHIFT)
+  const siteMark = markWorld(W);
   const X0 = 85, X1 = 155, Z0 = -40, Z1 = 20, gateZ = -10;
   compound(W, X0, X1, Z0, Z1, gS, gateZ, 0, MAT.METAL_DARK);
   // the harvester: a tracked logging machine parked in the yard (big cover)
@@ -170,6 +172,8 @@ registerLayout('thessaly', (W) => {
   W.towers.forEach((t, i) => W.roster.push({ name: 'tower' + i, post: true, tower: t, tasks: [T(t.x, t.z, 'scan', [4, 8], yawTo(120, -10, t.x, t.z) + Math.PI)] }));
   W.roster.push({ name: 'kade', officer: true, tasks: [T(107, -24, 'look', [3, 5]), T(146, 0, 'look', [3, 4]), T(98, -27, 'talk', [4, 6]), T(90, -10, 'scan', [3, 5])] });
   W.officerName = 'Overseer Kade';
+  shiftWorld(W, siteMark, SITE_SHIFT, 0);
+  W.siteShift = { dx: SITE_SHIFT, dz: 0 };
 });
 
 // ------------------------------------------------------------------ Korrun Deep
@@ -218,7 +222,8 @@ registerLayout('korrun', (W) => {
     W.decor.push({ type: 'spire', x, y, z, s, h, v: rng() });
   });
 
-  // Cryo-Vault Sigma
+  // Cryo-Vault Sigma (authored near x 95..165, shifted east by SITE_SHIFT)
+  const siteMark = markWorld(W);
   const X0 = 95, X1 = 165, Z0 = 10, Z1 = 70, gateZ = 40;
   compound(W, X0, X1, Z0, Z1, gS, gateZ, 55, MAT.METAL);
   // the vault (keyed with the code Tobin sells)
@@ -270,4 +275,6 @@ registerLayout('korrun', (W) => {
   W.towers.forEach((t, i) => W.roster.push({ name: 'tower' + i, post: true, tower: t, tasks: [T(t.x, t.z, 'scan', [4, 8], yawTo(130, 40, t.x, t.z) + Math.PI)] }));
   W.roster.push({ name: 'ishen', officer: true, tasks: [T(131, 36, 'look', [3, 5]), T(110, 45, 'look', [3, 4]), T(150, 34, 'talk', [4, 6]), T(138, 36, 'scan', [3, 5])] });
   W.officerName = 'Doctor-Commander Ishen';
+  shiftWorld(W, siteMark, SITE_SHIFT, 0);
+  W.siteShift = { dx: SITE_SHIFT, dz: 0 };
 });

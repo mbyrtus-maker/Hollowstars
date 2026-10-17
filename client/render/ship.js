@@ -89,3 +89,98 @@ export function makeWayfarer() {
     setThrust(v) { for (const e of engines) { e.material.color.setHex(0x6ad8ff).multiplyScalar(0.8 + v * 4); e.scale.setScalar(1 + v * 0.25); } },
   };
 }
+
+// ------------------------------------------------------------------ NPC traders
+// Three designs that come and go from each town's spaceport (shared/spaceport.js).
+// All face -Z with their origin on the ground at the centre of the hull.
+
+function parts(g) {
+  return (geo, m, x, y, z, rx = 0, ry = 0, rz = 0, shadow = true) => {
+    const o = new THREE.Mesh(geo, m);
+    o.position.set(x, y, z); o.rotation.set(rx, ry, rz);
+    o.castShadow = shadow; o.receiveShadow = true;
+    g.add(o);
+    return o;
+  };
+}
+function engineGlows(list) {
+  return (v) => { for (const e of list) { e.material.color.setHex(0x7fd8ff).multiplyScalar(0.7 + v * 4); e.scale.setScalar(1 + v * 0.3); } };
+}
+
+// Mulehorn bulk hauler: a long spine with cargo pods slung either side
+function makeBulkHauler() {
+  const T = textures();
+  const g = new THREE.Group(), add = parts(g);
+  const tex = repeated(T.metal, 2);
+  const hull = new THREE.MeshStandardMaterial({ color: 0xa8784e, metalness: 0.35, roughness: 1, ...tex });
+  const grey = new THREE.MeshStandardMaterial({ color: 0x6e7076, metalness: 0.5, roughness: 1, ...tex });
+  const dark = mat(0x2a2b30, { metal: 0.5, rough: 0.6 });
+  add(new RoundedBoxGeometry(3.4, 3.0, 20, 2, 0.5), grey, 0, 4.2, 0);
+  add(new THREE.SphereGeometry(2.4, 16, 10), hull, 0, 4.4, -10.4).scale.set(1, 0.8, 1.2);
+  add(new RoundedBoxGeometry(2.2, 0.7, 1.4, 2, 0.25), new THREE.MeshStandardMaterial({ color: 0x0e2a36, metalness: 0.9, roughness: 0.08, emissive: 0x0a3a4a, emissiveIntensity: 0.6 }), 0, 5.3, -12.4, -0.35);
+  for (const side of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const pod = add(new RoundedBoxGeometry(2.8, 2.6, 5.2, 2, 0.2), i % 2 ? hull : grey, side * 3.3, 3.6, -5.6 + i * 5.8);
+    pod.castShadow = true;
+    add(new THREE.BoxGeometry(0.4, 0.3, 4.8), dark, side * 1.9, 4.6, -5.6 + i * 5.8);
+  }
+  const glows = [];
+  for (const [x, y] of [[-1.3, 3.4], [1.3, 3.4], [-1.3, 5.1], [1.3, 5.1]]) {
+    add(new THREE.CylinderGeometry(0.75, 0.9, 2.2, 14), dark, x, y, 10.8, Math.PI / 2);
+    glows.push(add(new THREE.CircleGeometry(0.62, 14), glowMat(0x7fd8ff, 0.8), x, y, 11.92, 0, 0, 0, false));
+  }
+  for (const [x, z] of [[-2.6, -7], [2.6, -7], [-2.6, 7], [2.6, 7]]) {
+    add(new THREE.CylinderGeometry(0.16, 0.2, 2.6, 6), dark, x, 1.3, z);
+    add(new THREE.CylinderGeometry(0.55, 0.6, 0.14, 10), dark, x, 0.07, z);
+  }
+  for (const s of [-1, 1]) add(new THREE.SphereGeometry(0.12, 6, 4), glowMat(s < 0 ? 0xff3040 : 0x40ff70, 3), s * 4.8, 5, -1, 0, 0, 0, false);
+  return { group: g, setRamp() {}, setThrust: engineGlows(glows), height: 6.5 };
+}
+
+// Swiftwater courier skiff: an arrowhead with forward-swept wings
+function makeCourierSkiff() {
+  const T = textures();
+  const g = new THREE.Group(), add = parts(g);
+  const white = new THREE.MeshStandardMaterial({ color: 0xe4e2dc, metalness: 0.4, roughness: 1, ...repeated(T.metal, 1.4) });
+  const blue = mat(0x2f6f9a, { metal: 0.4, rough: 0.45 }), dark = mat(0x26272c, { metal: 0.5, rough: 0.6 });
+  const body = new THREE.ConeGeometry(1.8, 11, 6, 1);
+  body.rotateX(-Math.PI / 2); body.scale(1.1, 0.55, 1);
+  add(body, white, 0, 2.0, -0.6);
+  add(new RoundedBoxGeometry(1.4, 0.5, 2.2, 2, 0.2), new THREE.MeshStandardMaterial({ color: 0x0e2a36, metalness: 0.9, roughness: 0.08, emissive: 0x0a3a4a, emissiveIntensity: 0.6 }), 0, 2.75, -1.6, -0.08);
+  for (const s of [-1, 1]) {
+    add(new THREE.BoxGeometry(4.6, 0.18, 1.8), white, s * 3, 1.85, 1.2, 0, s * -0.45, s * 0.08);
+    add(new THREE.BoxGeometry(4.6, 0.2, 0.3), blue, s * 3, 1.95, 0.6, 0, s * -0.45, s * 0.08);
+    add(new THREE.BoxGeometry(0.15, 1.6, 1.6), white, s * 1.2, 2.8, 3.6, 0, 0, s * 0.35);
+  }
+  add(new THREE.CylinderGeometry(0.9, 1.0, 2.0, 16), dark, 0, 2.0, 5.2, Math.PI / 2);
+  const glow = add(new THREE.CircleGeometry(0.8, 16), glowMat(0x9fc8ff, 0.8), 0, 2.0, 6.22, 0, 0, 0, false);
+  for (const [x, z] of [[-1.2, 2], [1.2, 2], [0, -3.5]]) add(new THREE.CylinderGeometry(0.1, 0.12, 1.5, 6), dark, x, 0.75, z);
+  return { group: g, setRamp() {}, setThrust: engineGlows([glow]), height: 3.5 };
+}
+
+// Pilgrim lander: a domed saucer on three legs with a ring of lit portholes
+function makePilgrimLander() {
+  const g = new THREE.Group(), add = parts(g);
+  const hull = mat(0xc8b48e, { metal: 0.4, rough: 0.5 }), dark = mat(0x2a2b30, { metal: 0.5, rough: 0.6 });
+  const saucer = new THREE.SphereGeometry(5, 24, 10);
+  saucer.scale(1, 0.32, 1);
+  add(saucer, hull, 0, 3.2, 0);
+  add(new THREE.SphereGeometry(2.2, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x9fd4e8, transparent: true, opacity: 0.55, metalness: 0.9, roughness: 0.05 }), 0, 4.2, 0).castShadow = false;
+  const ring = new THREE.TorusGeometry(4.6, 0.18, 6, 32);
+  ring.rotateX(Math.PI / 2);
+  add(ring, dark, 0, 3.2, 0);
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    add(new THREE.CircleGeometry(0.22, 8), glowMat(0xffd28a, 1.4), Math.sin(a) * 4.62, 3.45, Math.cos(a) * 4.62, 0, a, 0, false);
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.5;
+    add(new THREE.CylinderGeometry(0.14, 0.18, 3.2, 6), dark, Math.sin(a) * 3.2, 1.5, Math.cos(a) * 3.2, Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3);
+    add(new THREE.CylinderGeometry(0.5, 0.55, 0.12, 10), dark, Math.sin(a) * 3.6, 0.06, Math.cos(a) * 3.6);
+  }
+  const glow = add(new THREE.CircleGeometry(1.2, 18), glowMat(0x9fe0ff, 0.8), 0, 2.0, 0, Math.PI / 2, 0, 0, false);
+  return { group: g, setRamp() {}, setThrust: engineGlows([glow]), height: 5 };
+}
+
+export function makeNpcShip(type) {
+  return type === 'hauler' ? makeBulkHauler() : type === 'skiff' ? makeCourierSkiff() : makePilgrimLander();
+}

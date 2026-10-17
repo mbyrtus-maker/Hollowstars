@@ -16,8 +16,9 @@ export function stepSpeeder(W, s, inp, dt) {
   let vf = s.vx * fx + s.vz * fz;
   let vr = s.vx * rx + s.vz * rz;
   const thr = inp.throttle || 0;
-  const top = inp.boost ? SPEEDER.boostSpeed : SPEEDER.maxSpeed;
-  if (thr > 0) vf += Math.min(top - vf, (inp.boost ? SPEEDER.boostAccel : SPEEDER.accel) * thr * dt) * (vf < top ? 1 : 0);
+  const tune = s.tune || 1; // the rider's speeder upgrades
+  const top = (inp.boost ? SPEEDER.boostSpeed : SPEEDER.maxSpeed) * tune;
+  if (thr > 0) vf += Math.min(top - vf, (inp.boost ? SPEEDER.boostAccel : SPEEDER.accel) * tune * thr * dt) * (vf < top ? 1 : 0);
   else if (thr < 0) vf = vf > 0 ? Math.max(0, vf - SPEEDER.brake * dt) : Math.max(-SPEEDER.reverse, vf - SPEEDER.accel * 0.5 * dt);
   else vf -= vf * Math.min(1, dt * 0.45);
   if (vf > top) vf -= (vf - top) * Math.min(1, dt * 2);

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { clamp, lerp, mulberry32 } from '../../shared/math.js';
 import { textures, repeated } from './textures.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const texCache = new Map();
 function texSet(name, rep) { const k = name + rep; if (!texCache.has(k)) texCache.set(k, repeated(textures()[name], rep)); return texCache.get(k); }
@@ -156,9 +157,9 @@ export class Critter {
 
 // ------------------------------------------------------------------ speeder
 
-export function makeSpeeder() {
+export function makeSpeeder(color = 0x8a7a64, vane = 0x9a3a2c) {
   const g = new THREE.Group();
-  const hull = mat(0x8a7a64, { metal: 0.35, rough: 0.55 }), dark = mat(0x2e2c30, { metal: 0.5 }), red = mat(0x9a3a2c);
+  const hull = mat(color, { metal: 0.35, rough: 0.55 }), dark = mat(0x2e2c30, { metal: 0.5 }), red = mat(vane);
   const body = new THREE.Group();
   body.position.y = 0;
   g.add(body);
@@ -180,6 +181,88 @@ export function makeSpeeder() {
   g.userData.body = body;
   g.userData.under = under;
   g.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+  return g;
+}
+
+// ------------------------------------------------------------------ civilian landspeeder and cargo hauler
+
+function underglow(w, l, y) {
+  const u = new THREE.Mesh(new THREE.PlaneGeometry(w, l), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x55c8ff).multiplyScalar(1.2), transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  u.rotation.x = Math.PI / 2; u.position.y = y;
+  return u;
+}
+
+// An open-top two-seat landspeeder. Faces -Z. Driver sits front-left.
+export function makeLandspeeder(color = 0xb8a27e) {
+  const g = new THREE.Group(), body = new THREE.Group();
+  g.add(body);
+  const paint = mat(color, { metal: 0.45, rough: 0.4 }), dark = mat(0x2a2a2e, { metal: 0.5, rough: 0.6 }), trim = mat(0xd8d2c4, { metal: 0.6, rough: 0.35 });
+  const seat = mat(0x5a3a2a, { rough: 0.8 });
+  const hullG = new RoundedBoxGeometry(1.9, 0.5, 4.0, 3, 0.22);
+  body.add(mesh(hullG, paint, 0, 0.05, 0));
+  const nose = new RoundedBoxGeometry(1.7, 0.36, 1.3, 3, 0.16);
+  body.add(mesh(nose, paint, 0, 0.12, -2.1).rotateX(0.08));
+  body.add(mesh(boxG(1.94, 0.08, 3.6), trim, 0, 0.2, 0.1)); // chrome rail
+  // windscreen
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.45), new THREE.MeshStandardMaterial({ color: 0x9fd4e8, transparent: true, opacity: 0.35, metalness: 0.9, roughness: 0.05, side: THREE.DoubleSide }));
+  glass.position.set(0, 0.55, -0.95); glass.rotation.x = -0.6;
+  body.add(glass);
+  body.add(mesh(boxG(1.5, 0.05, 0.05), dark, 0, 0.75, -0.82));
+  // seats and a tiller
+  for (const x of [-0.42, 0.42]) { body.add(mesh(boxG(0.55, 0.16, 0.6), seat, x, 0.33, -0.1)); body.add(mesh(boxG(0.55, 0.6, 0.14), seat, x, 0.6, 0.22).rotateX(-0.15)); }
+  body.add(mesh(cylG(0.03, 0.03, 0.5, 6), dark, -0.42, 0.55, -0.62).rotateX(0.9));
+  body.add(mesh(new THREE.TorusGeometry(0.16, 0.025, 6, 14), dark, -0.42, 0.72, -0.78).rotateX(0.9));
+  // three rear turbines
+  for (const [x, y] of [[-0.62, 0.32], [0.62, 0.32], [0, 0.62]]) {
+    body.add(mesh(cylG(0.24, 0.28, 1.2, 12), dark, x, y, 1.7).rotateX(Math.PI / 2));
+    body.add(mesh(new THREE.CircleGeometry(0.2, 12), glowMat(0x6ad8ff, 2.2), x, y, 2.31, false));
+  }
+  body.add(mesh(boxG(0.3, 0.06, 0.12), glowMat(0xffe0a0, 2.5), -0.6, 0.12, -2.72, false)); // headlights
+  body.add(mesh(boxG(0.3, 0.06, 0.12), glowMat(0xffe0a0, 2.5), 0.6, 0.12, -2.72, false));
+  const brake = [];
+  for (const x of [-0.85, 0.85]) { const b = mesh(boxG(0.16, 0.08, 0.04), glowMat(0xff2020, 0.6), x, 0.2, 2.02, false); body.add(b); brake.push(b); }
+  const under = underglow(1.6, 3.8, -0.22);
+  body.add(under);
+  g.userData = { body, under, brake, seats: [[-0.42, 0.41, -0.05], [0.42, 0.41, -0.05]] };
+  g.traverse((m) => { if (m.isMesh && m !== under && m !== glass) m.castShadow = true; });
+  return g;
+}
+
+// A cab-forward cargo hauler with a crate bed. Faces -Z.
+export function makeHauler(color = 0x8f8676, seed = 1) {
+  const g = new THREE.Group(), body = new THREE.Group();
+  g.add(body);
+  const rng = mulberry32(seed * 977 + 3);
+  const paint = mat(color, { metal: 0.4, rough: 0.55 }), dark = mat(0x2a2a2e, { metal: 0.5, rough: 0.6 }), stripe = mat(0xd98b2e, { rough: 0.6 });
+  body.add(mesh(new RoundedBoxGeometry(2.3, 0.45, 6.2, 2, 0.15), dark, 0, 0, 0.2));
+  const cab = new RoundedBoxGeometry(2.2, 1.4, 1.8, 3, 0.3);
+  body.add(mesh(cab, paint, 0, 0.9, -2.2));
+  body.add(mesh(boxG(2.24, 0.18, 1.82), stripe, 0, 0.55, -2.2));
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.6), new THREE.MeshStandardMaterial({ color: 0x0e2a36, metalness: 0.9, roughness: 0.08, emissive: 0x0a2a3a, emissiveIntensity: 0.5 }));
+  glass.position.set(0, 1.2, -3.11); body.add(glass);
+  // the bed: side rails and a stack of crates that changes per vehicle
+  body.add(mesh(boxG(2.3, 0.5, 0.12), paint, 0, 0.45, 3.25));
+  for (const x of [-1.1, 1.1]) body.add(mesh(boxG(0.1, 0.5, 4.2), paint, x, 0.45, 1.2));
+  const crateMat = mat(0x7d6a4e, { tex: 'crate', rep: 1 });
+  for (let i = 0; i < 6; i++) {
+    if (rng() < 0.25) continue;
+    const s = 0.75 + rng() * 0.25;
+    body.add(mesh(boxG(s, s, s), crateMat, (i % 2 ? 0.5 : -0.5), 0.22 + s / 2, -0.4 + Math.floor(i / 2) * 1.2));
+    if (rng() < 0.4) body.add(mesh(boxG(s * 0.8, s * 0.8, s * 0.8), crateMat, (i % 2 ? 0.5 : -0.5), 0.22 + s + s * 0.4, -0.4 + Math.floor(i / 2) * 1.2).rotateY(rng()));
+  }
+  // repulsor pods
+  for (const [x, z] of [[-1.05, -2.2], [1.05, -2.2], [-1.05, 2.5], [1.05, 2.5]]) {
+    body.add(mesh(cylG(0.32, 0.36, 0.3, 12), dark, x, -0.32, z));
+    body.add(mesh(new THREE.CircleGeometry(0.28, 12), glowMat(0x6ad8ff, 2), x, -0.48, z, false).rotateX(Math.PI / 2));
+  }
+  body.add(mesh(boxG(0.3, 0.08, 0.1), glowMat(0xffe0a0, 2.5), -0.75, 0.4, -3.12, false));
+  body.add(mesh(boxG(0.3, 0.08, 0.1), glowMat(0xffe0a0, 2.5), 0.75, 0.4, -3.12, false));
+  const brake = [];
+  for (const x of [-0.95, 0.95]) { const b = mesh(boxG(0.16, 0.1, 0.04), glowMat(0xff2020, 0.6), x, 0.5, 3.33, false); body.add(b); brake.push(b); }
+  const under = underglow(2, 5.6, -0.4);
+  body.add(under);
+  g.userData = { body, under, brake, seats: [[-0.45, 0.62, -2.3]] };
+  g.traverse((m) => { if (m.isMesh && m !== under) m.castShadow = true; });
   return g;
 }
 

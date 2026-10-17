@@ -5,7 +5,7 @@ import { clamp, angleDiff, yawTo, segVsVertical, dist2, dirFromYawPitch } from '
 import { raycast, lineOfSight, terrainHeight, queryBoxes } from '../world.js';
 import { isUnaware } from './ai.js';
 
-const HIT_R = { [K.CRITTER]: 0.6, [K.SPEEDER]: 1.3, [K.CAMERA]: 0.42, [K.PICKUP]: 0 };
+const HIT_R = { [K.CRITTER]: 0.6, [K.SPEEDER]: 1.3, [K.CAMERA]: 0.42, [K.PICKUP]: 0, [K.TRAFFIC]: 1.2 };
 
 export function hittable(e) {
   return !e.dead && e.kind !== K.PICKUP && e.kind !== K.GRENADE;
@@ -34,11 +34,14 @@ export function stepBolts(game, dt) {
       if (e.kind === K.SPEEDER && e.driver && b.team === 'player') continue;
       if ((e.kind === K.LANCER || e.kind === K.OFFICER || e.kind === K.CAMERA) && b.team === 'enemy') continue;
       if (e.kind === K.PRISONER && b.team === 'enemy') continue; // the Concordance wants her alive
+      if (b.team === 'hunter' && e.kind !== K.CRITTER) continue; // hunters only shoot game
+      if (e.kind === K.TRAFFIC && b.team !== 'player') continue;
       if (e.kind === K.PLAYER && e.vehicle) continue; // speeder takes the hit
       const r = HIT_R[e.kind] ?? 0.42;
       let y0 = e.y + 0.05, y1 = e.y + (e.crouch || (e.flags & F.CROUCH) ? 1.1 : e.h);
       if (e.kind === K.CAMERA) { y0 = e.y - 0.25; y1 = e.y + 0.25; }
       if (e.kind === K.SPEEDER) { y0 = e.y - 0.3; y1 = e.y + 1.0; }
+      if (e.kind === K.TRAFFIC) { y0 = e.y - 0.5; y1 = e.y + 1.3; }
       if (e.downed || (e.flags & F.DOWNED)) y1 = e.y + 0.5;
       const res = segVsVertical(b.x, b.y, b.z, ex, ey, ez, e.x, y0, y1, e.z);
       if (res.d < r) {
@@ -73,29 +76,40 @@ export function stepBolts(game, dt) {
   }
 }
 
+// The arc blade catches bolts on its own whenever it's drawn and the bolt comes from the
+// front, and sends them where the Warden is looking. Holding block widens the arc, and a
+// block raised just in time sends the bolt straight back at whoever fired it.
 function tryDeflect(game, p, b, hx, hy, hz) {
-  if (b.team !== 'enemy' || !p.blocking || p.weapon !== 'blade' || p.vehicle) return false;
+  if (b.team !== 'enemy' || p.weapon !== 'blade' || !p.drawn || p.vehicle || p.downed) return false;
   const bw = WEAPONS.blade;
-  // Bolt must come from the front
+  const blocking = p.blocking;
   const inYaw = yawTo(0, 0, -b.vx, -b.vz);
-  if (Math.abs(angleDiff(p.yaw, inYaw)) > bw.deflectCone) return false;
-  const cost = bw.deflectFocus * (p.upgrades.attune ? 0.6 : 1);
-  if (p.focus < cost) return false;
-  p.focus -= cost;
-  p.focusUsedAt = game.time;
-  const perfect = game.time - p.blockStart < bw.perfectWindow;
+  if (Math.abs(angleDiff(p.yaw, inYaw)) > (blocking ? bw.deflectCone : bw.autoDeflectCone)) return false;
+  const att = p.upgrades.attune ? 0.6 : 1;
+  const cost = (blocking ? bw.deflectFocus : bw.autoDeflectFocus) * att;
+  if (blocking) { if (p.focus < cost) return false; p.focus -= cost; p.focusUsedAt = game.time; }
+  else p.focus = Math.max(0, p.focus - cost); // the automatic catch never fails, it just tires you
+  const perfect = blocking && game.time - p.blockStart < bw.perfectWindow;
   const shooter = game.ents.get(b.owner);
-  let dx, dy, dz;
   const sp = Math.hypot(b.vx, b.vy, b.vz) * 1.15;
-  if ((perfect || game.rng() < 0.35) && shooter && !shooter.dead) {
-    // Return to sender
-    dx = shooter.x - hx; dy = shooter.y + 1.2 - hy; dz = shooter.z - hz;
-    const l = Math.hypot(dx, dy, dz);
-    dx /= l; dy /= l; dz /= l;
+  let d;
+  if (perfect && shooter && !shooter.dead) {
+    d = { x: shooter.x - hx, y: shooter.y + 1.2 - hy, z: shooter.z - hz };
   } else {
-    const d = dirFromYawPitch(p.yaw + (game.rng() - 0.5) * 0.7, p.pitch + (game.rng() - 0.3) * 0.5);
-    dx = d.x; dy = d.y; dz = d.z;
+    // where the Warden is looking, nudged onto an enemy close to that line
+    d = dirFromYawPitch(p.yaw, p.pitch || 0);
+    let best = null, bestA = bw.deflectAssist;
+    for (const e of game.nearby(p.x, p.z, 60)) {
+      if (!e.hostile || e.dead) continue;
+      const tx = e.x - hx, ty = e.y + 1.1 - hy, tz = e.z - hz;
+      const tl = Math.hypot(tx, ty, tz) || 1;
+      const a = Math.acos(Math.max(-1, Math.min(1, (tx * d.x + ty * d.y + tz * d.z) / tl)));
+      if (a < bestA) { bestA = a; best = { x: tx, y: ty, z: tz }; }
+    }
+    if (best) d = best;
   }
+  const l = Math.hypot(d.x, d.y, d.z) || 1;
+  const dx = d.x / l, dy = d.y / l, dz = d.z / l;
   b.vx = dx * sp; b.vy = dy * sp; b.vz = dz * sp;
   b.x = hx + dx * 0.3; b.y = hy + dy * 0.3; b.z = hz + dz * 0.3;
   b.team = 'player';

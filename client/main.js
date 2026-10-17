@@ -242,6 +242,8 @@ function onMessage(raw) {
       if (m.ui === 'missions') S.hud.openMissions(S.g, (x) => S.transport.send(x), relock);
       else if (m.ui === 'shop') S.hud.openShop(m.merchant, () => S.pv, (x) => S.transport.send(x), relock);
       else if (m.ui === 'nav') S.hud.openNav(() => S.g, S.myId, (x) => S.transport.send(x), relock);
+      else if (m.ui === 'market') S.hud.openMarket(m.merchant, () => S.g, () => S.pv, (x) => S.transport.send(x), relock);
+      else if (m.ui === 'workshop') S.hud.openWorkshop(m.merchant, () => S.pv, (x) => S.transport.send(x), relock);
       S.audio.ui('click');
       break;
     }
@@ -272,6 +274,7 @@ function applyGlobal(g) {
     if (dead && !was && id.startsWith('tank')) { const d = S.world.destructibles[id]; S.fx.burn(d.x, d.y + 1.5, d.z, 60); }
   }
   S.scene.alarm = !!g.al;
+  if (g.nd) S.scene.setDepleted(g.nd);
   if (prev && prev.m && g.m && prev.m.step !== g.m.step && g.m.status === 'active') S.audio.ui('good');
 }
 
@@ -285,9 +288,9 @@ function handleEvent(ev, priv) {
       S.boltOwners.set(id, owner);
       if (S.boltOwners.size > 400) S.boltOwners.delete(S.boltOwners.keys().next().value);
       const ov = S.ents.get(owner);
-      const kind = team === 2 ? 'knife' : team ? (ov && ov.flags & F.DRIVING ? 'speeder' : 'player') : 'enemy';
+      const kind = team === 3 ? 'hunter' : team === 2 ? 'knife' : team ? (ov && ov.flags & F.DRIVING ? 'speeder' : 'player') : 'enemy';
       if (owner === S.myId && cid && fx.bolts.has('c' + cid)) fx.rekeyBolt('c' + cid, id);
-      else { fx.spawnBolt(id, x, y, z, vx, vy, vz, kind); if (kind === 'knife') au.whoosh(false); else au.blaster(x, y, z, !team, kind === 'speeder'); }
+      else { fx.spawnBolt(id, x, y, z, vx, vy, vz, kind); if (kind === 'knife') au.whoosh(false); else au.blaster(x, y, z, !team || team === 3, kind === 'speeder'); }
       break;
     }
     case 'bend': {
@@ -302,6 +305,7 @@ function handleEvent(ev, priv) {
       S.boltOwners.set(id, pid);
       fx.redirectBolt(id, x, y, z, vx, vy, vz, 'player');
       au.deflect(x, y, z);
+      S.ents.parry(pid);
       if (pid === S.myId && perfect) S.hud.note('Perfect deflect', 'stealth');
       break;
     }
@@ -360,6 +364,7 @@ function handleEvent(ev, priv) {
       break;
     }
     case 'reset': fx.clearBolts(); break;
+    case 'honk': { const v = S.ents.get(ev[1]); if (v) au.honk(v.x, v.y, v.z, v.a1); break; }
     case 'travel': {
       S.travel.launch(ev[1], ev[2]);
       if (S.hud.modalOpen) S.hud.closeModal();
@@ -475,6 +480,7 @@ function frame() {
   S.vm && S.vm.update(dt, lp, S.t);
   if (S.vm && shipCam) S.vm.group.visible = false;
   fx.update(dt);
+  scene.serverTime = S.clockOffset == null ? null : now + S.clockOffset - INTERP_DELAY + (S.shipClockOffset || 0);
   scene.update(dt, S.t, lp.body);
   scene.render();
   hud.update({ pv: S.pv, g: S.g, camera, lp, entities: ents, myId: S.myId, t: S.t, dt });

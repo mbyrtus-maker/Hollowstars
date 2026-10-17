@@ -52,7 +52,10 @@ export const WEAPONS = {
     range: 2.7,
     arc: 1.05, // radians half-angle
     swingTime: 0.42,
-    deflectCone: 1.15, // half-angle of frontal block arc
+    deflectCone: 1.15, // half-angle of frontal block arc (holding block)
+    autoDeflectCone: 1.0, // half-angle covered automatically whenever the blade is drawn
+    autoDeflectFocus: 1.5,
+    deflectAssist: 0.12, // radians: deflections snap to an enemy this close to your aim
     deflectFocus: 4,
     perfectWindow: 0.3,
     noise: 6,
@@ -152,6 +155,12 @@ export const MERCHANTS = {
   teska: { name: 'Teska Vool', title: 'Arms & Oddments', stock: ['coil', 'cyclic', 'damper', 'shield'], greet: 'Credits talk, friend. Everything else whispers.' },
   bram: { name: 'Old Bram', title: 'Provisions', stock: ['grenade', 'medpack', 'attune', 'weave'], greet: 'Charges, meds, and a little something for the mind.' },
   grell: { name: 'Grell Asko', title: 'Marsh Salvage', stock: ['grenade', 'medpack', 'damper', 'weave'], greet: 'Everything here was pulled out of the mud. Most of it still works.' },
+  khetExchange: { name: 'Mara Quill', title: 'Khet Exchange', type: 'exchange', stock: [], greet: 'Grain, ore, hides. Everything has a price, and today\'s is on the board.' },
+  voskWorks: { name: 'Vosk Tamrin', title: 'Vosk Fabrication', type: 'workshop', stock: [], greet: 'Bring me parts and I\'ll make your kit sing.' },
+  lowmarshPost: { name: 'Ennis Garde', title: 'Lowmarsh Trading Post', type: 'exchange', stock: [], greet: 'Timber and resin we have. Ore we pay well for.' },
+  reedwright: { name: 'Old Pell', title: 'Reedwright\'s Workshop', type: 'workshop', stock: [], greet: 'Resin binds anything. Even you, if you stand still too long.' },
+  rimeExchange: { name: 'Ilka Fenn', title: 'Rime Exchange', type: 'exchange', stock: [], greet: 'Ice is cheap here. Grain is not. Plan accordingly.' },
+  coldforge: { name: 'Dorrin Hask', title: 'Coldforge', type: 'workshop', stock: [], greet: 'Cold steel holds an edge. What are we building?' },
   sava: { name: 'Sava Rook', title: 'Cold-Weather Outfitter', stock: ['medpack', 'grenade', 'shield', 'cyclic'], greet: 'Out here, the cold kills more troopers than you will. Buy something warm.' },
 };
 
@@ -209,7 +218,7 @@ export const BLADE_COLORS = ['#4fc8ff', '#6dff7a', '#ffd04a', '#d77bff'];
 // Entity kinds in snapshots
 export const K = {
   PLAYER: 1, LANCER: 2, OFFICER: 3, CIVILIAN: 4, MERCHANT: 5, INFORMANT: 6, PRISONER: 7,
-  CRITTER: 8, CAMERA: 9, SPEEDER: 10, PICKUP: 11, BARTENDER: 12, GRENADE: 13,
+  CRITTER: 8, CAMERA: 9, SPEEDER: 10, PICKUP: 11, BARTENDER: 12, GRENADE: 13, TRAFFIC: 14,
 };
 
 // Entity flag bits in snapshots
