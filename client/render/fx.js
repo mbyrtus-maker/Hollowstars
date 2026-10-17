@@ -104,6 +104,8 @@ export class FX {
       player: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x40c8ff).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
       enemy: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a30).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
       speeder: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x60ff90).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+      las: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff5a3a).multiplyScalar(3.5), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+      rocket: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa040).multiplyScalar(3), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
       hunter: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb040).multiplyScalar(3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
     };
     this.lightPool = [];
@@ -128,9 +130,15 @@ export class FX {
     if (kind === 'knife') {
       const k = makeKnife(); k.rotation.x = Math.PI / 2; k.scale.setScalar(1.3);
       const spin = new THREE.Group(); spin.add(k); g.add(spin); g.userData.spin = spin;
+    } else if (kind === 'rocket') {
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.45, 8).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x5a5e66, metalness: 0.6, roughness: 0.4 }));
+      const glow = new THREE.Mesh(this.glowGeo, this.boltMats.rocket);
+      glow.scale.set(0.8, 0.8, 0.35); glow.position.z = -0.35;
+      g.add(body, glow);
     } else {
       const core = new THREE.Mesh(this.boltGeo, this.coreMat);
-      const glow = new THREE.Mesh(this.glowGeo, this.boltMats[kind]);
+      const glow = new THREE.Mesh(this.glowGeo, this.boltMats[kind] || this.boltMats.player);
+      if (kind === 'las') { core.scale.set(1.5, 1.5, 2.6); glow.scale.set(1.4, 1.4, 2.4); }
       g.add(core, glow);
     }
     g.position.set(x, y, z);
@@ -141,7 +149,9 @@ export class FX {
     this.bolts.set(key, b);
     if (kind === 'knife') return b;
     // muzzle flash
-    const c = kind === 'enemy' ? [1, 0.25, 0.25] : kind === 'speeder' ? [0.4, 1, 0.6] : [0.35, 0.8, 1];
+    if (kind === 'rocket') { this.flash(x, y, z, 0xffa040, 10, 0.1); return b; }
+    const c = kind === 'enemy' || kind === 'las' ? [1, 0.35, 0.25] : kind === 'speeder' ? [0.4, 1, 0.6] : [0.35, 0.8, 1];
+    if (kind === 'las') { this.flash(x, y, z, 0xff6a4a, 30, 0.12); for (let i = 0; i < 8; i++) this.smoke.emit(x, y, z, vx * 0.004 + (Math.random() - 0.5), vy * 0.004 + Math.random() * 0.5, vz * 0.004 + (Math.random() - 0.5), 1.2, 0.3, 0.5, 0.48, 0.45, 0.35, { grow: 0.8 }); }
     for (let i = 0; i < 5; i++) this.add.emit(x, y, z, vx * 0.03 + (Math.random() - 0.5) * 2, vy * 0.03 + (Math.random() - 0.5) * 2, vz * 0.03 + (Math.random() - 0.5) * 2, 0.08, 0.25, c[0], c[1], c[2], 1);
     return b;
   }
@@ -160,7 +170,7 @@ export class FX {
     const b = this.bolts.get(key);
     const kind = b ? b.kind : 'enemy';
     if (b) { this.scene.remove(b.g); this.bolts.delete(key); }
-    const c = kind === 'enemy' ? [1, 0.35, 0.25] : kind === 'speeder' ? [0.5, 1, 0.6] : kind === 'knife' ? [0.9, 0.9, 0.85] : [0.45, 0.85, 1];
+    const c = kind === 'enemy' || kind === 'las' ? [1, 0.35, 0.25] : kind === 'speeder' ? [0.5, 1, 0.6] : kind === 'knife' ? [0.9, 0.9, 0.85] : surface === 3 ? [1, 0.85, 0.4] : [0.45, 0.85, 1];
     this.sparks(x, y, z, surface === 1 ? 6 : kind === 'knife' ? 4 : 10, c, 4);
     if (surface === 0) {
       this.smoke.emit(x, y, z, 0, 0.6, 0, 1.2, 0.35, 0.3, 0.26, 0.24, 0.5, { grow: 0.6 });
@@ -310,6 +320,8 @@ export class FX {
       b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
       b.g.position.set(b.x, b.y, b.z);
       if (b.g.userData.spin) b.g.userData.spin.rotation.x += dt * 22;
+      if (b.kind === 'rocket' && Math.random() < dt * 60) this.smoke.emit(b.x, b.y, b.z, (Math.random() - 0.5) * 0.4, 0.3, (Math.random() - 0.5) * 0.4, 0.9, 0.25, 0.55, 0.52, 0.5, 0.45, { grow: 1.2 });
+      if (b.kind === 'las' && Math.random() < dt * 90) this.add.emit(b.x, b.y, b.z, 0, 0, 0, 0.25, 0.12, 1, 0.45, 0.3, 0.6, { grow: -0.3 });
       b.life -= dt;
       if (b.life <= 0) { this.scene.remove(b.g); this.bolts.delete(k); }
     }
@@ -348,6 +360,37 @@ export class FX {
     this.add.update(dt);
     this.smoke.update(dt);
     this.shake = Math.max(0, this.shake - dt * 2.5);
+  }
+
+  // Guardian's Bastion: a golden dome that rides with them
+  dome(follow, dur) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(5.2, 28, 18), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffc860).multiplyScalar(1.3), transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+    this.scene.add(m);
+    this.domes = this.domes || [];
+    this.domes.push({ m, follow, t: dur });
+  }
+  steerBolt(key, x, y, z, vx, vy, vz) {
+    const b = this.bolts.get(key);
+    if (!b) return;
+    b.x = x; b.y = y; b.z = z; b.vx = vx; b.vy = vy; b.vz = vz;
+    tmpV.set(vx, vy, vz).normalize();
+    b.g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tmpV);
+  }
+  jets(x, y, z) {
+    for (let i = 0; i < 26; i++) this.add.emit(x + (Math.random() - 0.5) * 0.4, y + 1.0, z + (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 2, -6 - Math.random() * 6, (Math.random() - 0.5) * 2, 0.35, 0.45, 1, 0.6, 0.2, 0.9, { grow: -0.5 });
+    this.dust(x, y, z, 12, 1.6);
+    this.flash(x, y + 1, z, 0xffa040, 20, 0.25);
+  }
+  updateDomes(dt, getPos) {
+    if (!this.domes) return;
+    for (let i = this.domes.length - 1; i >= 0; i--) {
+      const d = this.domes[i];
+      d.t -= dt;
+      const p = getPos(d.follow);
+      if (p) d.m.position.set(p.x, p.y + 1, p.z);
+      d.m.material.opacity = 0.1 + Math.sin(d.t * 8) * 0.025 + (d.t < 0.6 ? -0.1 * (1 - d.t / 0.6) : 0);
+      if (d.t <= 0) { this.scene.remove(d.m); this.domes.splice(i, 1); }
+    }
   }
 
   clearBolts() { for (const b of this.bolts.values()) this.scene.remove(b.g); this.bolts.clear(); }

@@ -4,6 +4,7 @@
 import { K, F, STEALTH, WEAPONS } from '../config.js';
 import { clamp, angleDiff, yawTo, dist2, lerpAngle, wrapAngle } from '../math.js';
 import { findPath, moveBody, lineOfSight, terrainHeight } from '../world.js';
+import { classOf } from './classes.js';
 
 const BARKS = {
   suspicious: ['Hm? Something moved.', 'Who\'s there?', 'Did you hear that?', 'Hold on...', 'Show yourself.'],
@@ -215,7 +216,9 @@ function bestStimulus(game, e, isCamera) {
     if (combat) rate *= 6;
     if (isCamera) rate *= 1.15;
     if (p.vehicle) rate *= 2.5;
-    if (p.cls === 'warden') rate *= 1.45; // wanted: every Lancer knows a Warden's face
+    const PC = classOf(p);
+    if (PC.wanted) rate *= 1.45; // wanted: every Lancer knows a Warden's face
+    if (PC.detect) rate *= PC.detect; // agents are hard to place
     if (rate > bestRate) { bestRate = rate; best = p; }
   }
   return best ? { p: best, rate: bestRate } : null;

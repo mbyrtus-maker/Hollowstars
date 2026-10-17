@@ -1,16 +1,20 @@
 // Crew classes: loadouts, Q/F/X abilities, and the Warden's "wanted" status.
-import { CLASSES, DEFAULT_CLASS, WEAPONS, POWERS, K, STEALTH } from '../config.js';
+import { CLASSES, DEFAULT_CLASS, WEAPONS, POWERS, K, STEALTH, ADVANCED, LEVELS, effectiveClass, levelOf } from '../config.js';
 import { clamp, dist2, yawTo, angleDiff, dirFromYawPitch } from '../math.js';
-import { lineOfSight, navWalkable, terrainHeight, groundAt } from '../world.js';
+import { lineOfSight, navWalkable, terrainHeight, groundAt, raycast } from '../world.js';
 import { isUnaware, pick, spawnGuard } from './ai.js';
 import { powerPush, powerPull } from './combat.js';
 
-export const classOf = (p) => CLASSES[p.cls] || CLASSES[DEFAULT_CLASS];
+export const classOf = (p) => effectiveClass(p.cls, p.adv);
+export const levelOfPlayer = (p) => levelOf(p.xp || 0).lv;
 
 export function applyLoadout(p, cls, prof) {
   if (!CLASSES[cls]) cls = DEFAULT_CLASS;
-  const C = CLASSES[cls];
   p.cls = cls;
+  // an advanced class sticks once chosen, as long as the level still allows it
+  const adv = prof && prof.advs && prof.advs[cls];
+  p.adv = adv && ADVANCED[adv] && ADVANCED[adv].base === cls && levelOf(p.xp || 0).lv >= LEVELS.advancedAt ? adv : null;
+  const C = effectiveClass(cls, p.adv);
   p.weapon = C.weapon;
   const same = prof && prof.cls === cls;
   p.grenades = same && prof.grenades != null ? Math.min(C.maxGrenades, prof.grenades) : C.grenades;
@@ -19,6 +23,9 @@ export function applyLoadout(p, cls, prof) {
   p.act = {}; // active ability -> expiry time
   p.knives = 3;
   p.knifeRegen = 0;
+  p.mines = 2;
+  p.mineRegen = 0;
+  p.stillT = 0;
   p.overshield = 0;
   p.invulnUntil = 0;
 }
@@ -52,7 +59,8 @@ export function useAbility(g, p, k, m) {
   if (!A || p.downed || p.dead) return;
   const yaw = Number.isFinite(+m.yaw) ? +m.yaw : p.yaw, pitch = Number.isFinite(+m.pitch) ? +m.pitch : p.pitch;
   const ready = () => g.time >= p.cdk[k];
-  const spend = (cd) => { p.cdk[k] = g.time + cd; };
+  // every level shaves a little off ability cooldowns
+  const spend = (cd) => { p.cdk[k] = g.time + cd * (1 - LEVELS.cdPer * (levelOfPlayer(p) - 1)); };
   switch (A.id) {
     // ---- Warden (uses Focus)
     case 'push': powerPush(g, p, { yaw, pitch }); break;
@@ -153,25 +161,170 @@ export function useAbility(g, p, k, m) {
       b.knife = true;
       break;
     }
+    // ---- Sniper
+    case 'overcharge': if (!ready()) return; spend(A.cd); p.act.overcharge = g.time + A.dur; g.pnote(p, 'Overcharged: your next shot punches through', 'stealth'); g.event(['charge', p.id]); break;
+    case 'mine': {
+      if (p.mines <= 0) { g.pnote(p, 'No mines ready. They come back in a while.', 'warn'); return; }
+      const f = dirFromYawPitch(yaw, 0);
+      const mx = p.x + f.x * 1.4, mz = p.z + f.z * 1.4;
+      const my = groundAt(g.world, mx, mz, p.y + 1.5);
+      if (Math.abs(my - p.y) > 1.5) { g.pnote(p, 'Find flat ground for the mine.', 'warn'); return; }
+      p.mines--;
+      const mine = g.spawn({ kind: K.MINE, x: mx, y: my + 0.05, z: mz, yaw, owner: p.id, armAt: g.time + WEAPONS.mine.arm, hp: 20, maxHp: 20, r: 0.3, h: 0.2, a1: p.color });
+      // a sniper keeps up to four mines in the ground; the oldest is reclaimed
+      const mine4 = [...g.ents.values()].filter((e) => e.kind === K.MINE && e.owner === p.id);
+      if (mine4.length > 4) g.removeEnt(mine4[0]);
+      g.event(['mine', p.id, mine.id]);
+      break;
+    }
+    case 'recon': {
+      if (!ready()) return;
+      spend(A.cd);
+      const f = dirFromYawPitch(yaw, 0);
+      let n = 0;
+      for (const e of g.nearby(p.x, p.z, 110)) {
+        if (!e.hostile || e.dead) continue;
+        const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz) || 1;
+        if ((dx * f.x + dz * f.z) / d < Math.cos(0.75)) continue;
+        e.markedUntil = g.time + 14;
+        n++;
+      }
+      g.event(['recon', p.id, +yaw.toFixed(2)]);
+      g.note(`${p.name}'s recon sweep marked ${n} ${n === 1 ? 'hostile' : 'hostiles'} for the crew.`, n ? 'stealth' : 'info');
+      break;
+    }
+    case 'phase': {
+      if (!ready()) return;
+      spend(A.cd);
+      p.phaseShot = true;
+      cloakUp(g, p, A.dur);
+      break;
+    }
+    // ---- Guardian
+    case 'bastion': {
+      const cost = 35 * (p.upgrades.attune ? 0.75 : 1);
+      if (!ready() || p.focus < cost) return;
+      spend(A.cd);
+      p.focus -= cost; p.focusUsedAt = g.time;
+      p.act.bastion = g.time + A.dur;
+      g.event(['bastion', p.id, A.dur]);
+      break;
+    }
+    // ---- Bounty Hunter
+    case 'rocket': {
+      if (!ready()) return;
+      const d = g.validDir(m.d);
+      if (!d) return;
+      spend(A.cd);
+      const o = g.validOrigin(p, m.o, 3);
+      const R = WEAPONS.wristRocket;
+      const b = g.spawnBolt(p, o[0], o[1], o[2], d[0], d[1], d[2], R.speed, R.damage, 'player', 30, 0, 4);
+      b.explode = { r: R.radius, dmg: R.damage };
+      b.life = 3;
+      break;
+    }
+    case 'bounty': {
+      if (!ready()) return;
+      const t = aimTarget(g, p, yaw, pitch, 80, 0.15, isFoe);
+      if (!t) { g.pnote(p, 'No mark in your sights.', 'warn'); return; }
+      spend(A.cd);
+      t.bountyUntil = g.time + A.dur; t.bountyBy = p.id; t.markedUntil = Math.max(t.markedUntil || 0, g.time + A.dur);
+      g.event(['bounty', p.id, t.id]);
+      g.note(`${p.name} put a bounty on a ${t.kind === K.OFFICER ? 'Concordance officer' : 'Lancer'}: it takes half again the damage.`, 'stealth');
+      break;
+    }
+    // ---- Commando
+    case 'jets': {
+      if (!ready()) return;
+      spend(A.cd);
+      const f = dirFromYawPitch(yaw, 0);
+      p.impulseT = g.time;
+      g.impulse(p, f.x * 11, 13, f.z * 11);
+      g.event(['jets', p.id]);
+      g.noise(p.x, p.y, p.z, 14, p, false);
+      break;
+    }
+    case 'swarm': {
+      if (!ready()) return;
+      const f = dirFromYawPitch(yaw, 0);
+      const targets = [];
+      for (const e of g.nearby(p.x, p.z, 50)) {
+        if (!isFoe(e)) continue;
+        const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz) || 1;
+        if ((dx * f.x + dz * f.z) / d < Math.cos(0.7)) continue;
+        if (!lineOfSight(g.world, p.x, p.y + 2, p.z, e.x, e.y + 1, e.z)) continue;
+        targets.push([d, e]);
+      }
+      targets.sort((a, b) => a[0] - b[0]);
+      if (!targets.length) { g.pnote(p, 'No targets for the rocket pod.', 'warn'); return; }
+      spend(A.cd);
+      const R = WEAPONS.swarmRocket;
+      for (let i = 0; i < 6; i++) {
+        const t = targets[i % targets.length][1];
+        g.later(i * 0.12, () => {
+          if (!g.ents.has(p.id) || p.downed) return;
+          const side = i % 2 ? 1 : -1;
+          const ox = p.x + Math.cos(p.yaw) * 0.25 * side, oz = p.z - Math.sin(p.yaw) * 0.25 * side, oy = p.y + 2.0;
+          const b = g.spawnBolt(p, ox, oy, oz, f.x * 0.6, 0.8, f.z * 0.6, R.speed, R.damage, 'player', 20, 0, 4);
+          b.explode = { r: R.radius, dmg: R.damage };
+          b.homing = t.id;
+          b.life = 4;
+        });
+      }
+      break;
+    }
+    // ---- Combat Surgeon
+    case 'adrenal': {
+      if (!ready()) return;
+      spend(A.cd);
+      let n = 0;
+      for (const o of g.players()) {
+        if (o.downed || dist2(o.x, o.z, p.x, p.z) > 15) continue;
+        o.act.adrenal = g.time + A.dur;
+        o.overshield = Math.max(o.overshield, 30);
+        n++;
+      }
+      g.event(['adrenal', p.id, +p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)]);
+      g.note(`${p.name} pumped ${n} of the crew full of adrenaline.`, 'credits');
+      break;
+    }
+    // ---- Agent
+    case 'decoy': {
+      if (!ready()) return;
+      const d = dirFromYawPitch(yaw, pitch);
+      const hit = raycast(g.world, p.x, p.y + 1.5, p.z, d.x, d.y, d.z, 26, { terrainStep: 0.8 });
+      const t = hit ? Math.max(1.5, hit.t - 0.8) : 26;
+      const x = p.x + d.x * t, z = p.z + d.z * t;
+      if (!navWalkable(g.world, x, z)) { g.pnote(p, 'Pick open ground for the decoy.', 'warn'); return; }
+      spend(A.cd);
+      const y = groundAt(g.world, x, z, p.y + d.y * t + 2);
+      g.spawn({ kind: K.DECOY, x, y, z, yaw: p.yaw, owner: p.id, until: g.time + A.dur, nextNoise: 0, hp: 1, maxHp: 1, r: 0.4, h: 1.8, a1: p.color, a2: p.id });
+      g.event(['decoy', p.id]);
+      break;
+    }
     case 'cloak': {
       if (!ready()) return;
       spend(A.cd);
-      p.act.cloak = g.time + A.dur; p.shroudUntil = g.time + A.dur; p.cloaked = true;
-      // Everyone tracking you loses sight and has to search where they last saw you
-      for (const e of g.ents.values()) {
-        if (!e.hostile || e.dead || !e.ai) continue;
-        if (e.kind === K.CAMERA) { e.ai.sus = 0; e.ai.tracking = false; continue; }
-        if (e.ai.target === p.id || (e.ai.stim && e.ai.stim.id === p.id)) {
-          e.ai.target = null; e.ai.lastSeen = -99; e.ai.alarmAt = e.ai.alarmAt;
-          e.ai.lkp = { x: p.x, y: p.y, z: p.z };
-          if (e.ai.state !== 'combat') { e.ai.sus = Math.min(e.ai.sus, 0.3); }
-        }
-      }
-      if (g.alarm.lkp && dist2(g.alarm.lkp.x, g.alarm.lkp.z, p.x, p.z) < 30) g.alarm.lkp = { x: p.x, y: p.y, z: p.z };
-      g.event(['shroud', p.id, A.dur]);
+      cloakUp(g, p, A.dur);
       break;
     }
   }
+}
+
+// Vanish: anyone tracking you loses sight and has to search where they last saw you
+function cloakUp(g, p, dur) {
+  p.act.cloak = g.time + dur; p.shroudUntil = g.time + dur; p.cloaked = true;
+  for (const e of g.ents.values()) {
+    if (!e.hostile || e.dead || !e.ai) continue;
+    if (e.kind === K.CAMERA) { e.ai.sus = 0; e.ai.tracking = false; continue; }
+    if (e.ai.target === p.id || (e.ai.stim && e.ai.stim.id === p.id)) {
+      e.ai.target = null; e.ai.lastSeen = -99;
+      e.ai.lkp = { x: p.x, y: p.y, z: p.z };
+      if (e.ai.state !== 'combat') e.ai.sus = Math.min(e.ai.sus, 0.3);
+    }
+  }
+  if (g.alarm.lkp && dist2(g.alarm.lkp.x, g.alarm.lkp.z, p.x, p.z) < 30) g.alarm.lkp = { x: p.x, y: p.y, z: p.z };
+  g.event(['shroud', p.id, dur]);
 }
 
 export function breakCloak(g, p) {
@@ -182,12 +335,21 @@ export function breakCloak(g, p) {
 }
 
 export function tickClass(g, p, dt) {
-  if (p.cls === 'spy' && p.knives < 3) {
+  const C = classOf(p);
+  if (C.abilities.f && C.abilities.f.id === 'knife' && p.knives < 3) {
     p.knifeRegen += dt;
     if (p.knifeRegen >= CLASSES.spy.abilities.f.recharge) { p.knifeRegen = 0; p.knives++; }
   }
-  if (p.overshield > 0 && !active(g, p, 'bulwark')) p.overshield = 0;
+  if (C.abilities.f && C.abilities.f.id === 'mine' && p.mines < 2) {
+    p.mineRegen += dt;
+    if (p.mineRegen >= CLASSES.sniper.abilities.f.recharge) { p.mineRegen = 0; p.mines++; }
+  }
+  if (p.overshield > 0 && !active(g, p, 'bulwark') && !active(g, p, 'adrenal')) p.overshield = 0;
+  // snipers (and phantoms even more) melt into cover when they stay low and still
+  const still = Math.hypot(p.vx || 0, p.vz || 0) < 0.4 && p.crouch;
+  p.stillT = still ? (p.stillT || 0) + dt : 0;
 }
+export const camoFactor = (p) => { const c = classOf(p).camo; return c && p.stillT > 1 ? c : 1; };
 
 // Damage hook: invulnerable rolls and the Soldier's bulwark absorb hits first
 export function absorbDamage(g, p, amt) {
@@ -206,7 +368,7 @@ export function cooldownView(g, p) {
     if (A.id === 'push' || A.id === 'pull') { cd = Math.max(0, p.cd[A.id] - g.time); max = POWERS[A.id].cooldown; }
     if (A.id === 'suggest') { cd = Math.max(0, (p.cd.suggest || 0) - g.time); max = POWERS.suggest.cooldown; }
     const act = A.dur ? Math.max(0, (p.act[A.id] || 0) - g.time) : 0;
-    out[k] = [Math.round(cd * 10) / 10, max, Math.round(act * 10) / 10, A.id === 'knife' ? p.knives : -1];
+    out[k] = [Math.round(cd * 10) / 10, max, Math.round(act * 10) / 10, A.id === 'knife' ? p.knives : A.id === 'mine' ? p.mines : -1];
   }
   return out;
 }
@@ -223,7 +385,7 @@ export function updateHunters(g, dt) {
   }
   if (g.hunterT > 0) return;
   g.hunterT = 150 + g.rng() * 90;
-  const wardens = g.players().filter((p) => p.cls === 'warden' && !p.downed);
+  const wardens = g.players().filter((p) => classOf(p).wanted && !p.downed);
   const huntersAlive = [...g.ents.values()].some((e) => e.hunter && !e.dead);
   if (!wardens.length || huntersAlive) return;
   const w = wardens[Math.floor(g.rng() * wardens.length)];

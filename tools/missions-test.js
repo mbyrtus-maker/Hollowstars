@@ -70,6 +70,7 @@ function use(g, p, holdSeconds = 0) {
   if (status === 'failed') console.log('  reason:', g.mission.reason);
   check(status === 'complete', `rescue: mission completes when Ilsa reaches the LZ (she is ${d.toFixed(1)}m away)`);
   check(p.credits >= 1800, `rescue: reward paid (credits ${p.credits})`);
+  check(p.xp >= 300, `rescue: the job pays experience too (${p.xp} xp)`);
 }
 
 // ---------------------------------------------------------------- heist

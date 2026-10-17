@@ -77,7 +77,15 @@ Object.assign(WEAPONS, {
   pistol: { damage: 24, boltSpeed: 95, fireInterval: 0.24, heatPerShot: 0.07, coolRate: 0.7, overheatCooldown: 1.3, noise: 34, spread: 0.005 },
   knives: { damage: 55, range: 2.2, arc: 0.95, swingTime: 0.3, noise: 2 },
   thrownKnife: { damage: 80, speed: 48, noise: 0 },
+  // Sniper's long-las: one heavy, fast bolt; a body shot drops a trooper, a head shot drops an officer
+  longlas: { damage: 88, boltSpeed: 230, fireInterval: 1.1, heatPerShot: 0.3, coolRate: 0.5, overheatCooldown: 2, noise: 48, spread: 0.0008 },
+  // Agent's suppressed sidearm: quiet enough to use inside a garrison
+  silenced: { damage: 32, boltSpeed: 110, fireInterval: 0.32, heatPerShot: 0.09, coolRate: 0.7, overheatCooldown: 1.3, noise: 7, spread: 0.004 },
+  wristRocket: { damage: 70, speed: 48, radius: 4.5 },
+  swarmRocket: { damage: 45, speed: 38, radius: 3.2 },
+  mine: { damage: 160, radius: 6, trigger: 3.2, arm: 1.5 },
 });
+export const RANGED = ['blaster', 'pistols', 'pistol', 'longlas', 'silenced'];
 
 // Crew classes, chosen at startup. Abilities live on Q, F and X.
 export const CLASSES = {
@@ -111,7 +119,73 @@ export const CLASSES = {
     grenades: 3, maxGrenades: 5, medpacks: 2, maxMedpacks: 4, throwable: 'Noisemakers',
     abilities: { q: { id: 'execute', name: 'Execute', cd: 10 }, f: { id: 'knife', name: 'Throw knife', charges: 3, recharge: 6 }, x: { id: 'cloak', name: 'Cloak', cd: 14, dur: 8 } },
   },
+  sniper: {
+    name: 'Sniper', role: 'Long-las and recon', weapon: 'longlas', weaponName: 'LR-9 long-las',
+    desc: 'A long-las that drops a trooper with one bolt. Hold right mouse to scope in. Mark enemies for the crew, mine the approaches, and stay still and low to all but vanish.',
+    grenades: 1, maxGrenades: 3, medpacks: 2, maxMedpacks: 4, camo: 0.55,
+    abilities: { q: { id: 'overcharge', name: 'Overcharged shot', cd: 12, dur: 8 }, f: { id: 'mine', name: 'Proximity mine', charges: 2, recharge: 20 }, x: { id: 'recon', name: 'Recon sweep', cd: 26 } },
+  },
 };
+
+// Advanced classes: unlocked at level 10, each grows out of one base class. Anything not
+// listed falls back to the base class.
+export const ADVANCED = {
+  guardian: {
+    base: 'warden', name: 'Guardian', role: 'Shield of the crew', hp: 30,
+    desc: 'A Warden who stands between the crew and the guns. The blade catches bolts across a wider arc, and the Bastion dome stops every bolt fired into it.',
+    deflectCone: 1.4,
+    abilities: { x: { id: 'bastion', name: 'Bastion', cd: 24, dur: 6 } },
+  },
+  bounty: {
+    base: 'gunslinger', name: 'Bounty Hunter', role: 'Marks and rockets', hp: 15, creditBonus: 0.25,
+    desc: 'Marks a target for the crew to tear apart, fires a wrist rocket, and collects a quarter more on every kill.',
+    abilities: { f: { id: 'rocket', name: 'Wrist rocket', cd: 9 }, x: { id: 'bounty', name: 'Mark bounty', cd: 20, dur: 20 } },
+  },
+  commando: {
+    base: 'soldier', name: 'Commando', role: 'Jump jets and rockets', hp: 30, grenades: 2,
+    desc: 'Heavier armor, jump jets that throw you over walls, and a shoulder pod that fires homing rockets at everything in front of you.',
+    abilities: { f: { id: 'jets', name: 'Jump jets', cd: 7 }, x: { id: 'swarm', name: 'Swarm rockets', cd: 22 } },
+  },
+  surgeon: {
+    base: 'medic', name: 'Combat Surgeon', role: 'Adrenaline and triage', hp: 20, healBonus: 0.3,
+    desc: 'Heals hit 30% harder, and an adrenaline surge gives everyone nearby an overshield and a quarter more damage.',
+    abilities: { x: { id: 'adrenal', name: 'Adrenaline', cd: 26, dur: 8 } },
+  },
+  agent: {
+    base: 'spy', name: 'Agent', role: 'Suppressed pistol and decoys', weapon: 'silenced', weaponName: 'Whisper suppressed pistol', hp: 10, detect: 0.75, sliceSpeed: 2,
+    desc: 'A suppressed pistol guards can barely hear, a holo-decoy that pulls patrols away, slicing twice as fast, and guards notice you a quarter slower.',
+    abilities: { f: { id: 'decoy', name: 'Holo-decoy', cd: 16, dur: 10 } },
+  },
+  phantom: {
+    base: 'sniper', name: 'Phantom', role: 'Phase cloak and ghost shots', hp: 10, camo: 0.3,
+    desc: 'Phase-cloak and take one shot without breaking it, for half again the damage. Overcharged shots punch through every target in line.',
+    abilities: { x: { id: 'phase', name: 'Phase cloak', cd: 18, dur: 8 } },
+  },
+};
+
+// The class a player actually plays: their base class with any advanced class laid over it
+const CLASS_CACHE = new Map();
+export function effectiveClass(cls, adv) {
+  const key = cls + '/' + (adv || '');
+  if (CLASS_CACHE.has(key)) return CLASS_CACHE.get(key);
+  const B = CLASSES[cls] || CLASSES.soldier, A = adv && ADVANCED[adv] && ADVANCED[adv].base === cls ? ADVANCED[adv] : null;
+  const out = A ? { ...B, ...A, name: A.name, base: cls, adv, abilities: { ...B.abilities, ...A.abilities } } : { ...B, base: cls, adv: null };
+  if (A && A.grenades) { out.grenades = B.grenades + A.grenades; out.maxGrenades = B.maxGrenades + A.grenades; }
+  if (A) out.weapon = A.weapon || B.weapon, out.weaponName = A.weaponName || B.weaponName;
+  CLASS_CACHE.set(key, out);
+  return out;
+}
+export const advancedFor = (cls) => Object.entries(ADVANCED).filter(([, a]) => a.base === cls).map(([id]) => id);
+
+// Experience: every level adds a little health and shaves ability cooldowns
+export const LEVELS = { max: 20, advancedAt: 10, hpPer: 3, cdPer: 0.01 };
+export const xpToNext = (lv) => 100 + 50 * (lv - 1);
+export function levelOf(xp) {
+  let lv = 1, need = xpToNext(1), left = xp;
+  while (lv < LEVELS.max && left >= need) { left -= need; lv++; need = xpToNext(lv); }
+  return { lv, into: left, need: lv >= LEVELS.max ? 0 : need };
+}
+export const XP = { lancer: 25, officer: 100, camera: 10, critter: 6, silent: 15, gather: 4, craft: 5, upgrade: 25, revive: 20, sabotage: 30, bounty: 60 };
 export const DEFAULT_CLASS = 'soldier';
 
 export const POWERS = {
@@ -220,11 +294,11 @@ export const BLADE_COLORS = ['#4fc8ff', '#6dff7a', '#ffd04a', '#d77bff'];
 // Entity kinds in snapshots
 export const K = {
   PLAYER: 1, LANCER: 2, OFFICER: 3, CIVILIAN: 4, MERCHANT: 5, INFORMANT: 6, PRISONER: 7,
-  CRITTER: 8, CAMERA: 9, SPEEDER: 10, PICKUP: 11, BARTENDER: 12, GRENADE: 13, TRAFFIC: 14,
+  CRITTER: 8, CAMERA: 9, SPEEDER: 10, PICKUP: 11, BARTENDER: 12, GRENADE: 13, TRAFFIC: 14, MINE: 15, DECOY: 16,
 };
 
 // Entity flag bits in snapshots
 export const F = {
   CROUCH: 1, BLOCK: 2, BLADE: 4, DEAD: 8, DOWNED: 16, DRIVING: 32, STAGGER: 64,
-  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072, ABOARD: 262144,
+  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072, ABOARD: 262144, MARKED: 524288,
 };

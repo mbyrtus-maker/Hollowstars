@@ -4,7 +4,7 @@ import { createWorld, raycast, terrainHeight, groundAt, useWorld } from '../shar
 import '../shared/layouts.js';
 import { PLANETS } from '../shared/planets.js';
 import { Travel } from './travel.js';
-import { K, F, INPUT_RATE, INTERP_DELAY, PLAYER_COLORS, MISSIONS, CLASSES, DEFAULT_CLASS } from '../shared/config.js';
+import { K, F, INPUT_RATE, INTERP_DELAY, PLAYER_COLORS, MISSIONS, CLASSES, DEFAULT_CLASS, ADVANCED, advancedFor, LEVELS, WEAPONS } from '../shared/config.js';
 import { dirFromYawPitch } from '../shared/math.js';
 import { WsTransport, LocalTransport } from './net.js';
 import { P2PHost, P2PClient, makeCrewCode, normalizeCode } from './p2p.js';
@@ -213,11 +213,11 @@ function onMessage(raw) {
       ensureWorld(m.planet || 'duskvaro');
       S.myId = m.id;
       S.ents.myId = m.id;
-      S.lp = new LocalPlayer(S.world, m.id, m.pos, m.yaw, m.color, m.cls);
+      S.lp = new LocalPlayer(S.world, m.id, m.pos, m.yaw, m.color, m.cls, m.adv);
       S.lp.tp = m.tp;
       if (S.vm) S.scene.camera.remove(S.vm.group);
       S.vm = new ViewModel(S.scene.camera, m.color, S.lp.weapon);
-      S.hud.setClass(S.lp.cls);
+      S.hud.setClass(S.lp.cls, S.lp.adv);
       S.hud.setDrawn(false);
       S.running = true;
       $('loading').classList.add('hidden');
@@ -236,6 +236,17 @@ function onMessage(raw) {
     case 'imp': S.lp && S.lp.impulse(m.v); break;
     case 'veh': S.lp && S.lp.enterVehicle(m.id, m.s); break;
     case 'planet': if (S.world && m.id !== S.planet) switchWorld(m.id); break;
+    case 'cls': {
+      // took (or dropped) an advanced class: new kit, new abilities
+      S.lp.setClass(m.cls, m.adv);
+      S.lp.drawn = false;
+      if (S.vm) S.scene.camera.remove(S.vm.group);
+      S.vm = new ViewModel(S.scene.camera, S.lp.color, S.lp.weapon);
+      S.hud.setClass(S.lp.cls, S.lp.adv);
+      S.hud.setDrawn(false);
+      S.audio.ui('good');
+      break;
+    }
     case 'ui': {
       S.input.unlock();
       const relock = () => { $('clicktoplay').classList.remove('hidden'); };
@@ -288,9 +299,9 @@ function handleEvent(ev, priv) {
       S.boltOwners.set(id, owner);
       if (S.boltOwners.size > 400) S.boltOwners.delete(S.boltOwners.keys().next().value);
       const ov = S.ents.get(owner);
-      const kind = team === 3 ? 'hunter' : team === 2 ? 'knife' : team ? (ov && ov.flags & F.DRIVING ? 'speeder' : 'player') : 'enemy';
+      const kind = team === 5 ? 'las' : team === 4 ? 'rocket' : team === 3 ? 'hunter' : team === 2 ? 'knife' : team ? (ov && ov.flags & F.DRIVING ? 'speeder' : 'player') : 'enemy';
       if (owner === S.myId && cid && fx.bolts.has('c' + cid)) fx.rekeyBolt('c' + cid, id);
-      else { fx.spawnBolt(id, x, y, z, vx, vy, vz, kind); if (kind === 'knife') au.whoosh(false); else au.blaster(x, y, z, !team || team === 3, kind === 'speeder'); }
+      else { fx.spawnBolt(id, x, y, z, vx, vy, vz, kind); if (kind === 'knife') au.whoosh(false); else if (kind === 'rocket') au.whoosh(true); else au.blaster(x, y, z, !team || team === 3, kind === 'speeder' || kind === 'las'); }
       break;
     }
     case 'bend': {
@@ -364,6 +375,24 @@ function handleEvent(ev, priv) {
       break;
     }
     case 'reset': fx.clearBolts(); break;
+    case 'steer': { const [, id, x, y, z, vx, vy, vz] = ev; fx.steerBolt(id, x, y, z, vx, vy, vz); break; }
+    case 'pierce': { const [, x, y, z] = ev; fx.sparks(x, y, z, 16, [1, 0.5, 0.3], 6); au.impact(x, y, z); break; }
+    case 'charge': { const v = S.ents.get(ev[1]); if (v) fx.ring(v.x, v.y + 1.2, v.z, 0xff6a4a, 2, 0.35); if (ev[1] === S.myId) au.ui('good'); break; }
+    case 'mine': { const v = S.ents.get(ev[1]); if (v) au.ui('click'); break; }
+    case 'recon': { const v = S.ents.get(ev[1]); if (v) { fx.ring(v.x, v.y + 0.2, v.z, 0xff7a4a, 60, 1.2); au.whoosh(false); } break; }
+    case 'bastion': { fx.dome(ev[1], ev[2]); au.whoosh(true); break; }
+    case 'bounty': { const t = S.ents.get(ev[2]); if (t) fx.ring(t.x, t.y + 2.2, t.z, 0xffc040, 1.5, 0.6); au.ui('bad'); break; }
+    case 'jets': { const v = S.ents.get(ev[1]); if (v) { fx.jets(v.x, v.y, v.z); au.explosion(v.x, v.y, v.z, 0.35); } break; }
+    case 'adrenal': { const [, pid, x, y, z] = ev; fx.ring(x, y, z, 0xff5a5a, 15, 0.7); fx.heal(x, y, z, 24); au.ui('good'); break; }
+    case 'decoy': au.whoosh(false); break;
+    case 'xp': S.hud.xpGain(ev[1]); break;
+    case 'lvl': {
+      const [, pid, lv] = ev;
+      const v = S.ents.get(pid);
+      if (v) { fx.ring(v.x, v.y + 0.1, v.z, 0xffd27a, 4, 0.9); fx.heal(v.x, v.y, v.z, 30); }
+      if (pid === S.myId) { S.hud.big(`Level ${lv}`, lv === LEVELS.advancedAt ? 'Advanced classes unlocked. Press K.' : `+${LEVELS.hpPer} health, abilities recharge faster`); au.ui('cash'); }
+      break;
+    }
     case 'honk': { const v = S.ents.get(ev[1]); if (v) au.honk(v.x, v.y, v.z, v.a1); break; }
     case 'travel': {
       S.travel.launch(ev[1], ev[2]);
@@ -480,6 +509,9 @@ function frame() {
   S.vm && S.vm.update(dt, lp, S.t);
   if (S.vm && shipCam) S.vm.group.visible = false;
   fx.update(dt);
+  fx.updateDomes(dt, (id) => ents.get(id));
+  $('scope').classList.toggle('hidden', !lp.scoped);
+  if (controlling && input.hit('KeyK')) openCareer();
   scene.serverTime = S.clockOffset == null ? null : now + S.clockOffset - INTERP_DELAY + (S.shipClockOffset || 0);
   scene.update(dt, S.t, lp.body);
   scene.render();
@@ -491,6 +523,7 @@ const FROZEN = { sens: 0, invertY: false, mouse: { dx: 0, dy: 0, l: false, r: fa
 
 function muzzle(left) {
   const lp = S.lp, cam = S.scene.camera;
+  if (lp.scoped) { const d = dirFromYawPitch(lp.yaw, lp.pitch); return new THREE.Vector3(cam.position.x + d.x * 0.9, cam.position.y + d.y * 0.9 - 0.05, cam.position.z + d.z * 0.9); }
   if (lp.firstPerson) {
     const d = dirFromYawPitch(lp.yaw, lp.pitch);
     const rx = Math.cos(lp.yaw), rz = -Math.sin(lp.yaw);
@@ -504,7 +537,7 @@ function muzzle(left) {
 function useAbility(k, lp, camera) {
   const A = lp.C.abilities[k];
   const msg = { t: 'ab', k, yaw: lp.yaw, pitch: lp.pitch };
-  if (A.id === 'fan' || A.id === 'knife') {
+  if (A.id === 'fan' || A.id === 'knife' || A.id === 'rocket') {
     const aim = lp.aimPoint(camera, S.ents);
     const o = A.id === 'knife' ? handPos() : muzzle();
     const d = [aim.x - o.x, aim.y - o.y, aim.z - o.z];
@@ -533,16 +566,18 @@ function fireBlaster(aim) {
   let dx = aim.x - o.x, dy = aim.y - o.y, dz = aim.z - o.z;
   const l = Math.hypot(dx, dy, dz) || 1;
   dx /= l; dy /= l; dz /= l;
-  const spread = lp.aiming ? 0.002 : lp.speed > 1 ? 0.012 : 0.006;
+  const scopedShot = lp.scoped;
+  const spread = scopedShot ? 0.0003 : lp.weapon === 'longlas' ? 0.03 : lp.aiming ? 0.002 : lp.speed > 1 ? 0.012 : 0.006;
   dx += (Math.random() - 0.5) * spread * 2; dy += (Math.random() - 0.5) * spread * 2; dz += (Math.random() - 0.5) * spread * 2;
   const n = Math.hypot(dx, dy, dz);
   dx /= n; dy /= n; dz /= n;
   const cid = S.cid++;
   S.transport.send({ t: 'fire', o: [o.x, o.y, o.z], d: [dx, dy, dz], c: cid });
-  const sp = lp.weapon === 'pistols' ? 100 : 95;
-  S.fx.spawnBolt('c' + cid, o.x, o.y, o.z, dx * sp, dy * sp, dz * sp, 'player');
+  const sp = (WEAPONS[lp.weapon] && WEAPONS[lp.weapon].boltSpeed) || 95;
+  S.fx.spawnBolt('c' + cid, o.x, o.y, o.z, dx * sp, dy * sp, dz * sp, lp.weapon === 'longlas' ? 'las' : 'player');
   const damp = S.pv && S.pv.up.includes('damper');
-  S.audio.blaster(o.x, o.y, o.z, false, false);
+  S.audio.blaster(o.x, o.y, o.z, false, lp.weapon === 'longlas');
+  if (lp.weapon === 'longlas') S.fx.shake = Math.max(S.fx.shake, 0.25);
   if (damp) { /* quieter for others only */ }
 }
 
@@ -565,6 +600,13 @@ function fireSpeeder(aim) {
   S.audio.blaster(o.x, o.y, o.z, false, true);
 }
 
+// Career: level, experience and the advanced class for the class you're playing
+$('career-btn').addEventListener('click', (e) => { e.stopPropagation(); if (S.lp && !S.hud.modalOpen) openCareer(); });
+function openCareer() {
+  S.input.unlock();
+  S.hud.openCareer(() => S.pv, S.lp.cls, (x) => S.transport.send(x), () => { $('clicktoplay').classList.remove('hidden'); });
+}
+
 // class picker
 function buildClassPicker() {
   const grid = $('class-grid');
@@ -575,7 +617,8 @@ function buildClassPicker() {
     grid.querySelectorAll('.cls').forEach((b) => b.classList.toggle('active', b.dataset.cls === id));
     const c = CLASSES[id];
     const ab = Object.entries(c.abilities).map(([k, a]) => `<span><kbd>${k.toUpperCase()}</kbd> ${a.name}</span>`).join('') + (c.leap ? '<span><kbd>Space</kbd> Leap (hold)</span>' : '');
-    $('class-info').innerHTML = `<div class="ci-top"><b>${c.weaponName}</b>${c.wanted ? '<em>Wanted by the Concordance</em>' : ''}</div><p>${c.desc}</p><div class="ci-ab">${ab}<span><kbd>G</kbd> ${c.throwable || 'Thermal charges'} ×${c.grenades}</span><span><kbd>H</kbd> ${c.consumable || 'Medpacks'} ×${c.medpacks}</span></div>`;
+    const adv = advancedFor(id).map((a) => ADVANCED[a].name).join(', ');
+    $('class-info').innerHTML = `<div class="ci-top"><b>${c.weaponName}</b>${c.wanted ? '<em>Wanted by the Concordance</em>' : ''}</div><p>${c.desc}</p><div class="ci-ab">${ab}<span><kbd>G</kbd> ${c.throwable || 'Thermal charges'} ×${c.grenades}</span><span><kbd>H</kbd> ${c.consumable || 'Medpacks'} ×${c.medpacks}</span></div>${adv ? `<div class="ci-adv">At level ${LEVELS.advancedAt}: becomes a <b>${adv}</b></div>` : ''}`;
   };
   grid.querySelectorAll('.cls').forEach((b) => b.addEventListener('click', () => show(b.dataset.cls)));
   show(params.get('cls') && CLASSES[params.get('cls')] ? params.get('cls') : settings.cls);

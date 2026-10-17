@@ -189,7 +189,7 @@ function complete(g) {
   m.status = 'complete';
   m.endAt = g.time + 10;
   m.reward = info.reward + bonus;
-  for (const p of g.players()) g.addCredits(p, info.reward + bonus);
+  for (const p of g.players()) { g.addCredits(p, info.reward + bonus); g.addXp(p, Math.round(info.reward / 5) + (bonus ? 100 : 0)); }
   g.note(`Mission complete: ${info.name}  +${info.reward}cr${bonus ? `  Ghost bonus +${bonus}cr` : ''}`, 'complete');
   g.event(['mdone', m.id, info.reward, bonus]);
   g.globalDirty = true;

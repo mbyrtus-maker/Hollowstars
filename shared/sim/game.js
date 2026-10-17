@@ -14,7 +14,8 @@ import { padState } from '../spaceport.js';
 import { GOODS, RECIPES, UPGRADES, TOWNS, newMarket, marketTick, makerWork, shipTrade, marketView, priceTable, quoteBuy, quoteSell, packCount, canAfford, spend, gearBonus } from '../economy.js';
 import { startMission, missionTick, missionView, abandonMission, contactTalk, contactLabel, terminalUse, missionHome, missionLeftPlanet } from './missions.js';
 import { PLANETS, SHIP } from '../planets.js';
-import { applyLoadout, useAbility, weaponStats, active, breakCloak, tickClass, absorbDamage, cooldownView, updateHunters, classOf } from './classes.js';
+import { applyLoadout, useAbility, weaponStats, active, breakCloak, tickClass, absorbDamage, cooldownView, updateHunters, classOf, camoFactor, levelOfPlayer } from './classes.js';
+import { RANGED, LEVELS, levelOf, XP, ADVANCED, effectiveClass } from '../config.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const VIEW_IN = 240, VIEW_OUT = 275; // snapshot interest radius
@@ -168,16 +169,17 @@ export class Game {
       swingCount: 0, cd: { push: 0, pull: 0, shroud: 0 }, shroudUntil: 0, focusUsedAt: -9, lastHurt: -9,
       healT: 0, use: null, interact: null, visibility: 1, impulseT: -9, kills: 0, stats: { shots: 0 },
       pack: { ...(prof.pack || {}) }, gear: { weapon: 0, armor: 0, speeder: 0, ship: 0, ...(prof.gear || {}) },
+      xp: prof.xp || 0, advs: { ...(prof.advs || {}) },
     });
-    applyLoadout(p, info.cls, prof);
+    applyLoadout(p, info.cls, { ...prof, advs: p.advs });
     this.applyGear(p, true);
     this.clients.set(cid, p.id);
     this.rebuildSpatial();
     this.lastGlobal = '';
     this.note(`${p.name} joined the crew.`, 'info');
     this.globalDirty = true;
-    this.sendTo(cid, { t: 'welcome', id: p.id, room: this.roomName, solo: this.solo, pos: [r2(p.x), r2(p.y), r2(p.z)], yaw: p.yaw, tp: p.tpSeq, color: p.color, cls: p.cls, planet: this.planet });
-    if (CLASSES[p.cls].wanted) this.note(`${p.name} is a Warden. The Concordance pays well for Wardens — expect hunters.`, 'warn');
+    this.sendTo(cid, { t: 'welcome', id: p.id, room: this.roomName, solo: this.solo, pos: [r2(p.x), r2(p.y), r2(p.z)], yaw: p.yaw, tp: p.tpSeq, color: p.color, cls: p.cls, adv: p.adv, planet: this.planet });
+    if (classOf(p).wanted) this.note(`${p.name} is a Warden. The Concordance pays well for Wardens — expect hunters.`, 'warn');
     return { player: p };
   }
 
@@ -196,15 +198,56 @@ export class Game {
   }
 
   persist(p) {
-    this.saveProfile(p.name, { credits: p.credits, grenades: p.grenades, medpacks: p.medpacks, upgrades: p.upgrades, cls: p.cls, pack: p.pack, gear: p.gear });
+    this.saveProfile(p.name, { credits: p.credits, grenades: p.grenades, medpacks: p.medpacks, upgrades: p.upgrades, cls: p.cls, pack: p.pack, gear: p.gear, xp: p.xp, advs: p.advs });
   }
 
   // ---------------------------------------------------------------- economy
 
   market(planet = this.planet) { return (this.markets[planet] ||= newMarket(planet)); }
   cargoCap(p) { return gearBonus.cargo(p.gear.ship); }
+  // ---------------------------------------------------------------- experience
+
+  addXp(p, n, quiet) {
+    if (!p || p.kind !== K.PLAYER || n <= 0) return;
+    const before = levelOf(p.xp).lv;
+    p.xp += Math.round(n);
+    const after = levelOf(p.xp).lv;
+    if (!quiet) this.pevent(p, ['xp', Math.round(n)]);
+    if (after > before) {
+      this.applyGear(p, false);
+      p.hp = p.maxHp;
+      this.event(['lvl', p.id, after]);
+      this.note(`${p.name} reached level ${after}.`, 'objective');
+      if (before < LEVELS.advancedAt && after >= LEVELS.advancedAt) this.pnote(p, 'You can take an advanced class now. Press K to open your career.', 'objective');
+      this.globalDirty = true;
+    }
+    this.persist(p);
+  }
+  // Take (or drop) the advanced class for the class you're playing
+  onSpecialize(p, id) {
+    if (p.downed) return;
+    if (this.alarm.active) { this.pnote(p, 'Not while the garrison is hunting you.', 'warn'); return; }
+    if (id) {
+      const A = ADVANCED[id];
+      if (!A || A.base !== p.cls) return;
+      if (levelOf(p.xp).lv < LEVELS.advancedAt) { this.pnote(p, `Advanced classes open at level ${LEVELS.advancedAt}.`, 'warn'); return; }
+    }
+    p.adv = id || null;
+    p.advs[p.cls] = p.adv;
+    const C = classOf(p);
+    p.weapon = C.weapon;
+    p.cdk = { q: 0, f: 0, x: 0 };
+    p.act = {};
+    p.grenades = Math.min(p.grenades, C.maxGrenades);
+    this.applyGear(p, false);
+    this.persist(p);
+    this.sendTo(p.cid, { t: 'cls', cls: p.cls, adv: p.adv });
+    this.note(p.adv ? `${p.name} is now a ${C.name}.` : `${p.name} went back to being a ${C.name}.`, 'objective');
+    this.globalDirty = true;
+  }
+
   applyGear(p, heal) {
-    const max = PLAYER.maxHp + gearBonus.hp(p.gear.armor);
+    const max = PLAYER.maxHp + gearBonus.hp(p.gear.armor) + LEVELS.hpPer * (levelOf(p.xp || 0).lv - 1) + (classOf(p).hp || 0);
     if (heal) p.hp = max; else p.hp = Math.min(max, p.hp + Math.max(0, max - p.maxHp));
     p.maxHp = max;
   }
@@ -265,6 +308,7 @@ export class Game {
     }
     if (!made) { this.pnote(p, p.credits < R.fee ? 'Not enough credits for the bench fee.' : 'You are missing materials.', 'warn'); return; }
     this.persist(p);
+    this.addXp(p, XP.craft * made);
     this.pnote(p, `Made ${made} ${GOODS[r].name} (-${R.fee * made} cr)`, 'loot');
   }
   onUpgrade(p, k) {
@@ -280,6 +324,7 @@ export class Game {
     p.gear[k] = t + 1;
     if (k === 'armor') this.applyGear(p, false);
     this.addCredits(p, -tier.cr);
+    this.addXp(p, XP.upgrade);
     this.pnote(p, `${U.name} upgraded to tier ${t + 1}: ${tier.fx}`, 'objective');
     this.globalDirty = true;
   }
@@ -336,7 +381,7 @@ export class Game {
         if (alive && classOf(p).leap && p.focus >= c) { p.focus -= c; p.focusUsedAt = this.time; p.impulseT = this.time; }
         break;
       }
-      case 'med': if (alive && p.medpacks > 0 && p.hp < p.maxHp && p.healT <= 0) { p.medpacks--; p.healT = 2; this.persist(p); this.pnote(p, 'Medpack applied', 'info'); } break;
+      case 'med': if (alive && p.medpacks > 0 && p.hp < p.maxHp && p.healT <= 0) { p.medpacks--; p.healT = 2 * (1 + (classOf(p).healBonus || 0)); this.persist(p); this.pnote(p, 'Medpack applied', 'info'); } break;
       case 'use': this.onUse(p, msg); break;
       case 'buy': this.onBuy(p, msg.item); break;
       case 'accept': this.onAccept(p, msg.id); break;
@@ -345,6 +390,7 @@ export class Game {
       case 'trade': if (alive) this.onTrade(p, String(msg.g || ''), msg.n | 0); break;
       case 'craft': if (alive) this.onCraft(p, String(msg.r || ''), msg.n | 0); break;
       case 'upg': if (alive) this.onUpgrade(p, String(msg.k || '')); break;
+      case 'adv': this.onSpecialize(p, msg.id ? String(msg.id) : null); break;
       case 'disembark': if (p.aboard && !this.travel && !this.landing) this.disembark(p); break;
       case 'chat': {
         const m = String(msg.m || '').slice(0, 140).trim();
@@ -402,21 +448,25 @@ export class Game {
   }
 
   onFire(p, m) {
-    if (p.vehicle || !p.drawn || !['blaster', 'pistols', 'pistol'].includes(p.weapon) || p.overheated) return;
+    if (p.vehicle || !p.drawn || !RANGED.includes(p.weapon) || p.overheated) return;
     const W = weaponStats(p);
     const cyc = !!p.upgrades.cyclic;
     const sup = active(this, p, 'suppress');
     const interval = W.fireInterval * (cyc ? 0.65 : 1) * (sup ? 0.55 : 1);
     if (this.time - p.lastShot < interval * 0.7) return;
     p.lastShot = this.time;
-    breakCloak(this, p);
+    // a Phantom's first shot from phase cloak doesn't reveal them
+    let mult = 1, pierce = 0;
+    if (p.phaseShot && active(this, p, 'cloak')) { p.phaseShot = false; mult *= 1.5; } else breakCloak(this, p);
+    if (active(this, p, 'overcharge')) { const ph = p.adv === 'phantom'; mult *= ph ? 2.6 : 2.2; pierce = ph ? 8 : 2; p.act.overcharge = 0; }
     if (!sup) p.heat = Math.min(1, p.heat + W.heatPerShot * (cyc ? 0.8 : 1));
     if (p.heat >= 1) { p.overheated = true; p.overheatT = this.time; }
     const o = this.validOrigin(p, m.o, 3);
     const d = this.validDir(m.d);
     if (!d) return;
     p.stats.shots++;
-    this.spawnBolt(p, o[0], o[1], o[2], d[0], d[1], d[2], W.boltSpeed, W.damage * (p.upgrades.coil ? 1.4 : 1) * (active(this, p, 'deadeye') ? 1.8 : 1), 'player', p.upgrades.damper ? 12 : W.noise, m.c | 0);
+    const b = this.spawnBolt(p, o[0], o[1], o[2], d[0], d[1], d[2], W.boltSpeed, W.damage * mult * (p.upgrades.coil ? 1.4 : 1) * (active(this, p, 'deadeye') ? 1.8 : 1), 'player', p.upgrades.damper ? Math.min(12, W.noise) : W.noise, m.c | 0, p.weapon === 'longlas' ? 5 : undefined);
+    b.pierce = pierce;
   }
   onVehicleFire(p, m) {
     const v = p.vehicle && this.ents.get(p.vehicle);
@@ -503,6 +553,10 @@ export class Game {
   damage(e, amt, src, info = {}) {
     if (e.dead || amt <= 0) return;
     if (src && src.kind === K.PLAYER && src.gear && WEAPON_KINDS.has(info.kind) && !info.deflected) amt *= gearBonus.damage(src.gear.weapon);
+    if (src && src.kind === K.PLAYER) {
+      if (src.act && (src.act.adrenal || 0) > this.time) amt *= 1.25;
+      if ((e.bountyUntil || 0) > this.time) amt *= 1.5;
+    }
     if (e.kind === K.PLAYER) {
       if (e.downed || e.aboard) return;
       amt = absorbDamage(this, e, amt);
@@ -528,7 +582,7 @@ export class Game {
     }
     e.hp -= amt;
     if (e.kind === K.CAMERA) {
-      if (e.hp <= 0) { e.dead = true; e.flags = F.DEAD | F.OFF; this.event(['die', e.id, 'spark']); this.globalDirty = true; }
+      if (e.hp <= 0) { e.dead = true; e.flags = F.DEAD | F.OFF; this.event(['die', e.id, 'spark']); this.globalDirty = true; if (src && src.kind === K.PLAYER) this.addXp(src, XP.camera); }
       return;
     }
     if (e.hp <= 0) { this.kill(e, src, info); return; }
@@ -549,7 +603,12 @@ export class Game {
       this.corpses.push(e);
       if (killer) {
         killer.kills++;
-        this.addCredits(killer, e.kind === K.OFFICER ? 150 : 25);
+        this.addCredits(killer, Math.round((e.kind === K.OFFICER ? 150 : 25) * (1 + (classOf(killer).creditBonus || 0))));
+        this.addXp(killer, (e.kind === K.OFFICER ? XP.officer : XP.lancer) + (info.silent ? XP.silent : 0));
+        if ((e.bountyUntil || 0) > this.time) {
+          const hunter = this.ents.get(e.bountyBy);
+          if (hunter && hunter.kind === K.PLAYER) { this.addCredits(hunter, 100); this.addXp(hunter, XP.bounty); this.pnote(hunter, 'Bounty collected.', 'credits'); }
+        }
         if (e.kind !== K.CAMERA && this.rng() < (e.kind === K.OFFICER ? 1 : 0.45)) this.give(killer, 'scrap', e.kind === K.OFFICER ? 3 : 1);
         if (info.silent) this.pnote(killer, 'Silent takedown', 'stealth');
       }
@@ -563,7 +622,7 @@ export class Game {
       this.respawnQueue.push({ at: this.time + 60, kind: e.kind, snapshot: { ...e, ai: { ...e.ai, fleeUntil: 0, path: null, wait: 2 } } });
     } else if (e.kind === K.CRITTER) {
       this.respawnQueue.push({ at: this.time + 45, kind: e.kind, snapshot: { ...e, claimed: 0, ai: { ...e.ai, fleeUntil: 0 } } });
-      if (killer) { this.give(killer, 'meat', 1, true); this.give(killer, 'hide', 1, true); this.pnote(killer, '+1 Game meat, +1 Hides', 'loot'); e.claimed = -1; this.later(4, () => this.removeEnt(e)); }
+      if (killer) { this.addXp(killer, XP.critter, true); this.give(killer, 'meat', 1, true); this.give(killer, 'hide', 1, true); this.pnote(killer, '+1 Game meat, +1 Hides', 'loot'); e.claimed = -1; this.later(4, () => this.removeEnt(e)); }
     }
     this.globalDirty = true;
   }
@@ -575,7 +634,7 @@ export class Game {
     if (d.hp > 0) { this.event(['dhit', d.id]); return; }
     d.destroyed = true;
     this.event(['destroy', d.id]);
-    if (src && src.kind === K.PLAYER) this.give(src, 'scrap', 2);
+    if (src && src.kind === K.PLAYER) { this.give(src, 'scrap', 2); this.addXp(src, XP.sabotage); }
     if (d.kind === 'tank') {
       setTimeout0(this, 0.15, () => explode(this, d.x, d.y + 2.5, d.z, 9.5, 160, src, 'tank'));
     } else if (d.kind === 'mast') {
@@ -615,6 +674,7 @@ export class Game {
     this.globalDirty = true;
   }
   revive(p, by) {
+    if (by && by !== p) this.addXp(by, XP.revive);
     p.downed = false;
     p.hp = 45;
     p.lastHurt = this.time;
@@ -700,9 +760,10 @@ export class Game {
     if (W.pois.ship && !this.travel && !this.landing) add('ship', W.pois.ship.x, W.pois.ship.z, `Board the ${SHIP.name}`, 0, 4.2);
     for (const t of W.terminals) {
       if (dist2(p.x, p.z, t.x, t.z) > 4) continue;
-      if (t.kind === 'security') add('term:' + t.id, t.x, t.z, this.alarm.active ? 'Slice security: kill the alarm' : 'Slice security: loop the cameras', 4);
-      else if (t.kind === 'vault') add('term:' + t.id, t.x, t.z, 'Slice the vault console', 6);
-      else if (t.kind === 'cryo') add('term:' + t.id, t.x, t.z, 'Slice the cryo-archive console', 6);
+      const sl = classOf(p).sliceSpeed || 1;
+      if (t.kind === 'security') add('term:' + t.id, t.x, t.z, this.alarm.active ? 'Slice security: kill the alarm' : 'Slice security: loop the cameras', 4 / sl);
+      else if (t.kind === 'vault') add('term:' + t.id, t.x, t.z, 'Slice the vault console', 6 / sl);
+      else if (t.kind === 'cryo') add('term:' + t.id, t.x, t.z, 'Slice the cryo-archive console', 6 / sl);
     }
     if (W.doors.gate && !W.doors.gate.open && W.pois.gatePanel) add('gatepanel', W.pois.gatePanel.x, W.pois.gatePanel.z, 'Override the gate lock', 1.5, 2.6);
     for (const d of Object.values(W.doors)) {
@@ -797,7 +858,7 @@ export class Game {
       case 'node': {
         const n = W.nodes[+ref];
         if (!n || (this.nodeUntil.get(n.id) || 0) > this.time) return;
-        if (this.give(p, n.kind, NODE_YIELD[n.kind]) > 0) { this.nodeUntil.set(n.id, this.time + 75); this.noise(n.x, n.y, n.z, 6, p, false); this.globalDirty = true; }
+        if (this.give(p, n.kind, NODE_YIELD[n.kind]) > 0) { this.addXp(p, XP.gather, true); this.nodeUntil.set(n.id, this.time + 75); this.noise(n.x, n.y, n.z, 6, p, false); this.globalDirty = true; }
         break;
       }
       case 'nav': this.sendTo(p.cid, { t: 'ui', ui: 'nav' }); break;
@@ -1001,6 +1062,8 @@ export class Game {
       if (e.kind === K.PLAYER || e.kind === K.GRENADE) continue;
       if (e.kind === K.SPEEDER) { this.updateSpeeder(e, dt); continue; }
       if (e.kind === K.TRAFFIC) { updateTraffic(this, e, dt); continue; }
+      if (e.kind === K.MINE) { this.updateMine(e); continue; }
+      if (e.kind === K.DECOY) { this.updateDecoy(e); continue; }
       if (e.kind === K.PICKUP) { this.updatePickup(e, dt); continue; }
       if (e.dead) {
         if (e.kind !== K.CAMERA) {
@@ -1020,6 +1083,24 @@ export class Game {
     this.economyTick(dt);
     missionTick(this);
     this.broadcastSnapshot();
+  }
+
+  updateMine(e) {
+    if (e.dead) return;
+    const armed = this.time >= e.armAt;
+    e.flags = armed ? F.ALERT : 0;
+    if (!armed) return;
+    for (const o of this.nearby(e.x, e.z, WEAPONS.mine.trigger)) {
+      if (!o.hostile || o.dead || o.kind === K.CAMERA) continue;
+      e.dead = true;
+      this.removeEnt(e);
+      explode(this, e.x, e.y + 0.4, e.z, WEAPONS.mine.radius, WEAPONS.mine.damage, this.ents.get(e.owner) || null, 'mine');
+      return;
+    }
+  }
+  updateDecoy(e) {
+    if (this.time > e.until) { this.removeEnt(e); this.event(['decoyend', e.id]); return; }
+    if (this.time >= e.nextNoise) { e.nextNoise = this.time + 1.6; this.noise(e.x, e.y, e.z, 30, e, false); }
   }
 
   updatePickup(e, dt) {
@@ -1059,6 +1140,7 @@ export class Game {
       if (this.time < p.shroudUntil) vis *= p.cloaked ? POWERS.cloak.visibility : POWERS.shroud.visibility;
       tickClass(this, p, dt);
       if (!p.drawn && !p.vehicle) vis *= 0.85; // holstered: you could be anyone
+      vis *= camoFactor(p);
       if (p.vehicle) vis = 1.6;
       p.visibility = clamp(vis, 0.05, 2);
       p.lit = light;
@@ -1134,7 +1216,7 @@ export class Game {
       m: missionView(this),
       doors, des,
       it: Object.keys(this.party.items).filter((k) => this.party.items[k]),
-      party: this.players().map((p) => [p.id, p.name, p.color, Math.round(p.hp), p.downed ? 1 : 0, Math.round(p.credits), p.cls, p.aboard ? 1 : 0]),
+      party: this.players().map((p) => [p.id, p.name, p.color, Math.round(p.hp), p.downed ? 1 : 0, Math.round(p.credits), p.cls, p.aboard ? 1 : 0, levelOf(p.xp).lv, p.adv || '']),
       pl: this.planet,
       tr: this.travel ? [this.travel.to, Math.max(0, Math.round((this.travel.at - this.time) * 10) / 10)] : null,
       mk: this.mkView,
@@ -1167,6 +1249,7 @@ export class Game {
     }
     if (e.dead) flags |= F.DEAD;
     if (e.stagger > 0) flags |= F.STAGGER;
+    if ((e.markedUntil || 0) > this.time && !e.dead) flags |= F.MARKED;
     return [e.id, e.kind, r2(e.x), r2(e.y), r2(e.z), r2(e.yaw), flags, hp, a1, a2];
   }
 
@@ -1193,6 +1276,7 @@ export class Game {
       this.interest.set(cid, now);
       const eJSON = `[${parts.join(',')}]`;
       if (!p) continue;
+      const lvl = levelOf(p.xp || 0);
       const pv = {
         hp: Math.round(p.hp), sh: Math.round(p.shield), shm: p.upgrades.shield ? 50 : 0, fo: Math.round(p.focus), ht: r2(p.heat), oh: p.overheated ? 1 : 0,
         gr: p.grenades, md: p.medpacks, cr: p.credits, up: Object.keys(p.upgrades), dn: p.downed ? 1 : 0, bt: r2(p.bleed), vis: r2(p.visibility),
@@ -1202,6 +1286,7 @@ export class Game {
         ev: this.priv.get(p.id) || [],
         ab: cooldownView(this, p), os: Math.round(p.overshield || 0), cls: p.cls,
         pk: p.pack, gear: p.gear, cap: this.cargoCap(p), mhp: p.maxHp,
+        lv: lvl.lv, xp: lvl.into, xpn: lvl.need, adv: p.adv,
       };
       const msg = `{"t":"s","tm":${r2(this.time)},"e":${eJSON},"ev":${evJSON},"pv":${JSON.stringify(pv)}${gJSON ? `,"g":${gJSON}` : ''}}`;
       this.send(cid, msg);

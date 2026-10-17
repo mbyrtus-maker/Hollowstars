@@ -1,25 +1,22 @@
 // The locally controlled crew member: predicted movement, camera, aiming, viewmodel.
 import * as THREE from 'three';
-import { PLAYER, WEAPONS, POWERS, BLADE_COLORS, F, CLASSES, DEFAULT_CLASS } from '../shared/config.js';
+import { PLAYER, WEAPONS, POWERS, BLADE_COLORS, F, CLASSES, DEFAULT_CLASS, RANGED, effectiveClass } from '../shared/config.js';
 import { clamp, lerp, dirFromYawPitch, wrapAngle } from '../shared/math.js';
 import { moveBody, canStand, raycast, terrainHeight } from '../shared/world.js';
 import { stepSpeeder, SPEEDER } from '../shared/vehicles.js';
-import { makeRifle, makeBlade, makePistol, makeKnife } from './render/models.js';
+import { makeRifle, makeBlade, makePistol, makeKnife, makeLongLas, makeSilenced } from './render/models.js';
 
 const v3 = new THREE.Vector3();
 
 export class LocalPlayer {
-  constructor(world, id, pos, yaw, color, cls) {
+  constructor(world, id, pos, yaw, color, cls, adv) {
     this.world = world;
     this.id = id;
     this.color = color;
-    this.cls = CLASSES[cls] ? cls : DEFAULT_CLASS;
-    this.C = CLASSES[this.cls];
     this.body = { x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, r: PLAYER.radius, h: PLAYER.height, onGround: false };
     this.yaw = yaw; this.pitch = 0;
     this.crouch = false; this.sprint = false; this.blocking = false; this.aiming = false;
-    this.weapon = this.C.weapon;
-    this.ranged = ['blaster', 'pistols', 'pistol'].includes(this.weapon);
+    this.setClass(cls, adv);
     this.tp = 1;
     this.shotSide = 1;
     this.drawn = false;
@@ -38,6 +35,16 @@ export class LocalPlayer {
     this.state = { x: pos[0], y: pos[1], z: pos[2], yaw, flags: 0 };
     this.vehicleState = null;
   }
+
+  setClass(cls, adv) {
+    this.cls = CLASSES[cls] ? cls : DEFAULT_CLASS;
+    this.adv = adv || null;
+    this.C = effectiveClass(this.cls, this.adv);
+    this.weapon = this.C.weapon;
+    this.ranged = RANGED.includes(this.weapon);
+  }
+  // Long-las scope: right mouse zooms right down the barrel
+  get scoped() { return this.aiming && this.weapon === 'longlas' && !this.vehicle && !this.downed; }
 
   teleport(p, seq) {
     this.body.x = p[0]; this.body.y = p[1]; this.body.z = p[2];
@@ -59,7 +66,7 @@ export class LocalPlayer {
   // Called every frame. Returns actions to send.
   update(dt, input, pv, act) {
     this.time += dt;
-    const sens = 0.0022 * input.sens;
+    const sens = 0.0022 * input.sens * (this.scoped ? 0.28 : 1);
     this.yaw = wrapAngle(this.yaw - input.mouse.dx * sens);
     this.pitch = clamp(this.pitch - input.mouse.dy * sens * (input.invertY ? -1 : 1), -1.45, 1.4);
     this.downed = !!(pv && pv.dn);
@@ -208,12 +215,12 @@ export class LocalPlayer {
   // ---------------- camera
   updateCamera(camera, dt, fov, shake) {
     const b = this.body;
-    const targetFov = this.aiming ? fov * 0.62 : this.vehicle ? fov + Math.min(14, this.speed * 0.3) : this.sprint ? fov + 4 : fov;
-    camera.fov = lerp(camera.fov, targetFov, Math.min(1, dt * 10));
+    const targetFov = this.scoped ? fov * 0.22 : this.aiming ? fov * 0.62 : this.vehicle ? fov + Math.min(14, this.speed * 0.3) : this.sprint ? fov + 4 : fov;
+    camera.fov = lerp(camera.fov, targetFov, Math.min(1, dt * (this.scoped ? 16 : 10)));
     camera.updateProjectionMatrix();
     const dir = dirFromYawPitch(this.yaw, this.pitch);
     const sx = (Math.random() - 0.5) * shake * 0.3, sy = (Math.random() - 0.5) * shake * 0.3;
-    if (this.firstPerson && !this.vehicle && !this.downed) {
+    if ((this.firstPerson || this.scoped) && !this.vehicle && !this.downed) {
       const eye = (this.crouch ? PLAYER.crouchHeight : PLAYER.height) - 0.15;
       const ey = b.y + eye;
       this._eyeY = lerp(this._eyeY ?? ey, ey, Math.min(1, dt * 14));
@@ -272,27 +279,36 @@ export class ViewModel {
     this.pistolR = makePistol(); this.pistolL = makePistol();
     this.pistolR.position.set(0.2, -0.2, -0.38); this.pistolL.position.set(-0.2, -0.2, -0.38);
     this.knifeL = makeKnife(); this.knifeL.position.set(-0.3, -0.36, -0.48); this.knifeL.rotation.set(-0.3, 0, 0.3);
-    this.group.add(this.rifle, this.bladeHolder, this.pistolR, this.pistolL, this.knifeL);
+    this.longlas = makeLongLas(); this.longlas.position.set(0.22, -0.24, -0.5);
+    this.silenced = makeSilenced(); this.silenced.position.set(0.2, -0.2, -0.38);
+    this.group.add(this.rifle, this.bladeHolder, this.pistolR, this.pistolL, this.knifeL, this.longlas, this.silenced);
     this.group.traverse((m) => { if (m.isMesh) { m.castShadow = false; m.renderOrder = 10; } });
     this.swingT = 9;
     this.lastSwing = 0;
   }
   update(dt, lp, t) {
-    const show = lp.firstPerson && !lp.vehicle && !lp.downed && lp.drawn;
+    const show = lp.firstPerson && !lp.vehicle && !lp.downed && lp.drawn && !lp.scoped;
     this.group.visible = show;
     if (!show) return;
     this.rifle.visible = lp.weapon === 'blaster';
+    this.longlas.visible = lp.weapon === 'longlas';
+    this.silenced.visible = lp.weapon === 'silenced';
     this.bladeHolder.visible = lp.weapon === 'blade' || lp.weapon === 'knives';
     this.pistolR.visible = lp.weapon === 'pistols' || lp.weapon === 'pistol';
     this.pistolL.visible = lp.weapon === 'pistols';
     this.knifeL.visible = lp.weapon === 'knives';
+    const bob = Math.sin(t * 9) * Math.min(1, lp.speed / 6) * 0.015;
     if (this.pistolR.visible) {
       const k = lp.recoil * 0.05;
       this.pistolR.position.set(lp.aiming && lp.weapon === 'pistol' ? 0.0 : 0.2, -0.2 + bob, -0.38 + (lp.shotSide > 0 ? k : 0));
       this.pistolL.position.set(-0.2, -0.2 - bob, -0.38 + (lp.shotSide < 0 ? k : 0));
     }
-    const bob = Math.sin(t * 9) * Math.min(1, lp.speed / 6) * 0.015;
-    if (lp.weapon === 'blaster') {
+    if (lp.weapon === 'longlas') {
+      this.longlas.position.set(lp.aiming ? 0.02 : 0.22, (lp.aiming ? -0.16 : -0.24) + bob, -0.5 + lp.recoil * 0.12);
+      this.longlas.rotation.x = lp.recoil * 0.14;
+    } else if (lp.weapon === 'silenced') {
+      this.silenced.position.set(lp.aiming ? 0.0 : 0.2, -0.2 + bob, -0.38 + lp.recoil * 0.04);
+    } else if (lp.weapon === 'blaster') {
       this.rifle.position.set(lp.aiming ? 0.0 : 0.24, (lp.aiming ? -0.16 : -0.22) + bob, -0.42 + lp.recoil * 0.06);
       this.rifle.rotation.x = lp.recoil * 0.08;
     } else if (this.pistolR.visible) {

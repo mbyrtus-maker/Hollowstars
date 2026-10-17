@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { K, F, PLAYER_COLORS, BLADE_COLORS } from '../shared/config.js';
 import { lerp, lerpAngle, clamp, angleDiff } from '../shared/math.js';
-import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup, makeLandspeeder, makeHauler } from './render/models.js';
+import { Critter, makeSpeeder, makeSecCam, makeGrenade, makePickup, makeLandspeeder, makeHauler, makeMine } from './render/models.js';
 import { Humanoid } from './render/humanoid.js';
 
 const HUMAN = { [K.PLAYER]: 'player', [K.LANCER]: 'lancer', [K.OFFICER]: 'officer', [K.CIVILIAN]: 'civilian', [K.MERCHANT]: 'merchant', [K.INFORMANT]: 'informant', [K.PRISONER]: 'prisoner', [K.BARTENDER]: 'bartender' };
@@ -19,7 +19,12 @@ export class Entities {
   }
 
   setRoster(party) {
-    for (const [id, name, color, hp, down, cr, cls] of party) this.roster.set(id, { name, color, hp, down, cls });
+    for (const [id, name, color, hp, down, cr, cls, aboard, lv, adv] of party) {
+      const prev = this.roster.get(id);
+      this.roster.set(id, { name, color, hp, down, cls, lv, adv: adv || null });
+      // a crewmate who changed class gets a new body on the next snapshot
+      if (prev && (prev.cls !== cls || (prev.adv || null) !== (adv || null))) { const v = this.views.get(id); if (v) this.destroy(v); }
+    }
   }
 
   onSnapshot(tm, ents) {
@@ -48,7 +53,7 @@ export class Entities {
       if (kind === K.PLAYER) {
         const r = this.roster.get(id);
         const c = r ? r.color : 0;
-        opts.color = PLAYER_COLORS[c]; opts.bladeColor = BLADE_COLORS[c]; opts.colorIdx = c; opts.cls = r ? r.cls : 'soldier';
+        opts.color = PLAYER_COLORS[c]; opts.bladeColor = BLADE_COLORS[c]; opts.colorIdx = c; opts.cls = r ? r.cls : 'soldier'; opts.adv = r ? r.adv : null;
       }
       human = new Humanoid(HUMAN[kind], opts);
       model = human.root;
@@ -58,6 +63,14 @@ export class Entities {
     else if (kind === K.GRENADE) model = makeGrenade();
     else if (kind === K.PICKUP) model = makePickup(a1);
     else if (kind === K.TRAFFIC) ({ model, riders } = makeTraffic(a1, a2));
+    else if (kind === K.MINE) model = makeMine(PLAYER_COLORS[a1 | 0]);
+    else if (kind === K.DECOY) {
+      // a flickering hologram of the Agent who projected it
+      const r = this.roster.get(a2) || {};
+      human = new Humanoid('player', { variant: a2, color: PLAYER_COLORS[r.color || 0], colorIdx: r.color || 0, cls: r.cls || 'spy', adv: r.adv });
+      human.setShroud(true, 0.42);
+      model = human.root;
+    }
     else return null;
     this.scene.add(model);
     return { id, kind, model, human, critter, riders, buf: [], x: 0, y: 0, z: 0, yaw: 0, speed: 0, flags: 0, hp: 100, a1: 0, a2: 0, bubble: null, bubbleT: 0, lastSwingSeen: null };
@@ -121,11 +134,13 @@ export class Entities {
       if (far !== v.far) { v.far = far; m.traverse((o) => { if (o.isMesh && o.material.blending !== THREE.AdditiveBlending) o.castShadow = !far; }); }
       m.position.set(v.x, v.y, v.z);
       m.rotation.y = v.yaw;
-      if (v.human) this.animateHuman(v, s, fl, dt, t, isMe, local);
+      if (v.kind === K.DECOY) { v.human.update(dt, { speed: 0, pitch: 0, talk: true }, t + v.id); v.human.root.visible = Math.random() > 0.04; }
+      else if (v.human) this.animateHuman(v, s, fl, dt, t, isMe, local);
       else if (v.critter) v.critter.update(dt, { speed: v.speed, dead: !!(fl & F.DEAD), work: !!(fl & F.WORK), flee: !!(fl & F.FLEE) }, t);
       else if (v.kind === K.SPEEDER) this.animateSpeeder(v, dt, t);
       else if (v.kind === K.TRAFFIC) this.animateTraffic(v, fl, dt, t);
       else if (v.kind === K.CAMERA) this.animateCam(v, fl, t);
+      else if (v.kind === K.MINE) { m.userData.light.visible = (fl & F.ALERT) ? Math.sin(t * 6) > 0 : Math.sin(t * 20) > 0.6; }
       else if (v.kind === K.GRENADE) { m.userData.light.visible = Math.sin(t * 22) > 0; m.rotation.x += dt * 9; }
       else if (v.kind === K.PICKUP) { m.position.y = v.y + 0.25 + Math.sin(t * 3) * 0.08; m.rotation.y = t * 1.5; }
       if (v.bubbleT > 0) v.bubbleT -= dt;
@@ -189,7 +204,7 @@ export class Entities {
         if (h.swingT < 0.02 && v.lastSwingSeen !== h.lastSwing) { v.lastSwingSeen = h.lastSwing; this.audio.swing(v.x, v.y + 1, v.z); }
       }
     }
-    if (isMe) v.model.visible = !local.firstPerson || !!(fl & (F.DOWNED | F.DRIVING));
+    if (isMe) v.model.visible = !(local.firstPerson || local.scoped) || !!(fl & (F.DOWNED | F.DRIVING));
   }
 
   animateSpeeder(v, dt, t) {
@@ -248,7 +263,7 @@ export class Entities {
   rayEntities(o, d, maxT, skipId) {
     let best = maxT, hit = null;
     for (const v of this.views.values()) {
-      if (v.id === skipId || v.kind === K.PICKUP || v.kind === K.GRENADE || (v.flags & F.DEAD)) continue;
+      if (v.id === skipId || v.kind === K.PICKUP || v.kind === K.GRENADE || v.kind === K.MINE || v.kind === K.DECOY || (v.flags & F.DEAD)) continue;
       const r = v.kind === K.SPEEDER ? 1.2 : v.kind === K.TRAFFIC ? 1.3 : v.kind === K.CRITTER ? 0.6 : 0.45;
       const y0 = v.y, y1 = v.y + (v.kind === K.CAMERA ? 0.4 : v.kind === K.CRITTER ? 1 : (v.flags & F.CROUCH) ? 1.1 : 1.8);
       // closest approach of ray to vertical axis

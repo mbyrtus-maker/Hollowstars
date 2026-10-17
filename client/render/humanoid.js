@@ -7,7 +7,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { clamp, lerp, mulberry32, smoothstep } from '../../shared/math.js';
 import { textures, repeated } from './textures.js';
-import { makeRifle, makeBlade, makePistol, makeKnife, glowMat } from './models.js';
+import { makeRifle, makeBlade, makePistol, makeKnife, makeLongLas, makeSilenced, glowMat } from './models.js';
+import { effectiveClass } from '../../shared/config.js';
 
 // ------------------------------------------------------------------ shared materials
 
@@ -216,6 +217,7 @@ export class Humanoid {
         soldier: { top: 0x4a5040, legs: 0x3a4034, boots: 0x22241e, gloves: 0x2a2c26 },
         medic: { top: 0xd8d2c4, legs: 0x4a5058, boots: 0x2a2a2e, gloves: 0x6ac8a0 },
         spy: { top: 0x26222e, legs: 0x1e1c24, boots: 0x141218, gloves: 0x141218 },
+        sniper: { top: 0x5a5a44, legs: 0x48483a, boots: 0x2a261e, gloves: 0x2e2a22 },
       }[cls];
       this.body(o, rng, { skin, hair: hairC, ...looks, forearm: cls === 'spy' || cls === 'soldier' ? looks.top : undefined, forearmMat: cls === 'spy' || cls === 'soldier' ? 'cloth' : undefined });
       // crew colour: a scarf and a stripe so friends are readable at a distance
@@ -254,12 +256,24 @@ export class Humanoid {
         this.part(P, rbox(0.15, 0.18, 0.11, 0.03), 'leather', 0x7a5a3a, 0.21, -0.08, 0.06);
         this.part(S, rbox(0.03, 0.55, 0.012), 'leather', 0x7a5a3a, -0.02, 0.27, -0.118, 0, 0, -0.6);
         this.part(S, rbox(0.03, 0.55, 0.012), 'leather', 0x7a5a3a, -0.02, 0.27, 0.118, 0, 0, 0.6);
+      } else if (cls === 'sniper') {
+        // hooded scout under a ragged shoulder cloak, goggles up
+        const cloak = o.adv === 'phantom' ? 0x2e3036 : 0x5e6a46;
+        this.part(H, new THREE.SphereGeometry(0.135, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.64), 'cloth', cloak, 0, 0.13, 0.03, -0.32);
+        for (const s of [-1, 1]) this.part(H, new THREE.TorusGeometry(0.03, 0.01, 5, 10), 'leather', 0x1e1e1e, s * 0.04, 0.2, -0.09, -0.6);
+        for (let i = 0; i < 7; i++) {
+          const a = (i / 6 - 0.5) * 2.4;
+          this.part(S, rbox(0.06, 0.34 + (i % 3) * 0.08, 0.014), 'cloth', i % 2 ? cloak : 0x4a523a, Math.sin(a) * 0.17, 0.3 - (i % 3) * 0.04, Math.cos(a) * 0.13 + 0.02, 0.15, a, 0);
+        }
+        this.part(S, rbox(0.05, 0.55, 0.014), 'leather', 0x3a2c1e, 0.02, 0.27, -0.118, 0, 0, -0.6);
+        this.coatSwing = 0.3;
       } else if (cls === 'spy') {
         this.part(H, new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.64), 'cloth', 0x1e1c24, 0, 0.13, 0.025, -0.3);
         this.part(H, rbox(0.16, 0.08, 0.04), 'cloth', 0x1e1c24, 0, 0.07, -0.095);
         this.glowPart(H, new THREE.BoxGeometry(0.15, 0.03, 0.02), 0x6aff9a, 0, 0.155, -0.113);
         this.part(S, rbox(0.1, 0.12, 0.08), 'plate', 0x3a4048, 0.15, 0.08, 0.13);
       }
+      if (o.adv) this.advancedLook(o.adv, accent);
       return;
     }
     // townsfolk, merchants, the prisoner
@@ -304,6 +318,51 @@ export class Humanoid {
     this.coatSwing = 0.5;
     if (type === 'merchant') this.root.scale.setScalar(1.05);
     if (type === 'informant') this.part(H, new THREE.CylinderGeometry(0.17, 0.17, 0.015, 14), 'leather', 0x3a2a20, 0, 0.24, 0);
+  }
+
+  // Each advanced class wears its promotion
+  advancedLook(adv, accent) {
+    const S = this.spine, P = this.pelvis, H = this.head;
+    if (adv === 'guardian') {
+      const gold = 0xc9a24a;
+      for (const [shb, s] of [[this.shL, -1], [this.shR, 1]]) this.part(shb, new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), 'plate', gold, s * 0.01, 0.03, 0, 0, 0, s * -0.25);
+      this.part(S, lathe([[0.16, 0.22], [0.19, 0.32], [0.192, 0.42], [0.165, 0.49]], 12, 0.74), 'plate', 0xb8b0a0);
+      this.part(S, rbox(0.03, 0.3, 0.012), 'plate', gold, 0, 0.36, -0.15);
+      this.part(this.coatBone, lathe([[0.31, -0.84], [0.33, -0.88]], 16, 0.88), 'plate', gold);
+    } else if (adv === 'bounty') {
+      // long leather duster, rebreather, bandolier
+      this.part(this.coatBone, lathe([[0.15, 0.06], [0.19, -0.1], [0.24, -0.35], [0.28, -0.62], [0.3, -0.7]], 14, 0.86), 'leather', 0x4a3424);
+      this.part(H, rbox(0.11, 0.07, 0.06, 0.02), 'plate', 0x3a3d45, 0, 0.07, -0.1);
+      for (const s of [-1, 1]) this.part(H, new THREE.CylinderGeometry(0.018, 0.018, 0.05, 6).rotateX(Math.PI / 2), 'plate', 0x2a2c32, s * 0.04, 0.06, -0.14);
+      this.part(S, rbox(0.06, 0.6, 0.016), 'leather', 0x2a1e14, 0.02, 0.27, -0.12, 0, 0, 0.6);
+      for (let i = 0; i < 5; i++) this.part(S, rbox(0.03, 0.05, 0.03), 'plate', 0xb08a4a, -0.13 + i * 0.065, 0.12 + i * 0.075, -0.13);
+      this.coatSwing = 0.75;
+    } else if (adv === 'commando') {
+      const plate = 0x6a7262;
+      this.part(S, lathe([[0.16, 0.14], [0.2, 0.3], [0.205, 0.42], [0.17, 0.5]], 14, 0.8), 'plate', plate);
+      for (const [shb, s] of [[this.shL, -1], [this.shR, 1]]) { this.part(shb, new THREE.SphereGeometry(0.11, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), 'plate', plate, s * 0.015, 0.03, 0, 0, 0, s * -0.3); this.part(shb, limb(0.07, 0.065, 0.14), 'plate', plate, 0, -0.1, 0); }
+      for (const kn of [this.knL, this.knR]) this.part(kn, limb(0.07, 0.056, 0.26), 'plate', plate, 0, -0.04, -0.008);
+      this.part(H, ellipsoid(0.13, 0.145, 0.138, 14, 10), 'plate', plate, 0, 0.15, 0.004);
+      this.part(H, rbox(0.21, 0.055, 0.06), 'plate', 0x2a2e28, 0, 0.14, -0.11);
+      this.glowPart(H, new THREE.BoxGeometry(0.17, 0.02, 0.02), 0xff9a3a, 0, 0.14, -0.142);
+      // jump-jet pack
+      this.part(S, rbox(0.3, 0.32, 0.12, 0.04), 'plate', 0x4a5048, 0, 0.32, 0.17);
+      for (const s of [-1, 1]) { this.part(S, new THREE.CylinderGeometry(0.055, 0.065, 0.32, 10), 'plate', 0x3a3e3a, s * 0.09, 0.26, 0.25); this.glowPart(S, new THREE.CylinderGeometry(0.04, 0.04, 0.02, 10), 0xffa040, s * 0.09, 0.09, 0.25); }
+    } else if (adv === 'surgeon') {
+      this.part(S, lathe([[0.155, 0.16], [0.188, 0.3], [0.19, 0.42], [0.16, 0.5]], 12, 0.78), 'plate', 0xe8e4da);
+      this.part(S, rbox(0.04, 0.14, 0.012), 'cloth', 0xc83a3a, 0, 0.33, -0.15);
+      this.part(S, rbox(0.14, 0.04, 0.012), 'cloth', 0xc83a3a, 0, 0.33, -0.152);
+      this.glowPart(H, new THREE.BoxGeometry(0.16, 0.03, 0.02), 0x4ae0a0, 0, 0.16, -0.112);
+    } else if (adv === 'agent') {
+      this.part(this.coatBone, lathe([[0.15, 0.06], [0.18, -0.1], [0.22, -0.35], [0.25, -0.55]], 14, 0.86), 'cloth', 0x1e1c24);
+      this.part(H, new THREE.CylinderGeometry(0.12, 0.115, 0.06, 14), 'cloth', 0x24222a, 0, 0.215, 0.005);
+      this.part(H, new THREE.CylinderGeometry(0.16, 0.16, 0.012, 14), 'cloth', 0x24222a, 0, 0.19, 0);
+      this.part(S, rbox(0.3, 0.07, 0.12), 'cloth', 0x1e1c24, 0, 0.5, -0.02);
+      this.coatSwing = 0.55;
+    } else if (adv === 'phantom') {
+      this.glowPart(H, new THREE.BoxGeometry(0.15, 0.025, 0.02), 0xb08aff, 0, 0.15, -0.115);
+      this.part(H, rbox(0.15, 0.08, 0.04), 'cloth', 0x24262c, 0, 0.07, -0.095);
+    }
   }
 
   // ---------------- bake all parts into skinned meshes (one per material)
@@ -351,15 +410,15 @@ export class Humanoid {
   arm(type, o) {
     const cls = o.cls || 'soldier';
     this.cls = cls;
-    this.weaponKind = type === 'player' ? ({ warden: 'blade', gunslinger: 'pistols', soldier: 'blaster', medic: 'pistol', spy: 'knives' }[cls]) : (type === 'lancer' || type === 'officer' || o.role === 3 ? 'blaster' : null);
+    this.weaponKind = type === 'player' ? effectiveClass(cls, o.adv).weapon : (type === 'lancer' || type === 'officer' || o.role === 3 ? 'blaster' : null);
     this.slots = [];
     const slot = (obj, hand, hp, hr, mount, mp, mr) => { this.slots.push({ obj, hand, hp, hr, mount, mp, mr }); };
-    if (this.weaponKind === 'blaster') {
-      this.rifle = makeRifle();
+    if (this.weaponKind === 'blaster' || this.weaponKind === 'longlas') {
+      this.rifle = this.weaponKind === 'longlas' ? makeLongLas() : makeRifle();
       slot(this.rifle, this.handR, [0, -0.04, -0.02], [-Math.PI / 2, 0, 0], this.mBack, [0, 0, 0], [0, 0, 0]);
     }
-    if (this.weaponKind === 'pistols' || this.weaponKind === 'pistol') {
-      this.pistolR = makePistol();
+    if (this.weaponKind === 'pistols' || this.weaponKind === 'pistol' || this.weaponKind === 'silenced') {
+      this.pistolR = this.weaponKind === 'silenced' ? makeSilenced() : makePistol();
       slot(this.pistolR, this.handR, [0, -0.06, -0.01], [-Math.PI / 2, 0, 0], this.mHipR, [0, 0, 0], [0, 0, 0]);
       if (this.weaponKind === 'pistols') { this.pistolL = makePistol(); slot(this.pistolL, this.handL, [0, -0.06, -0.01], [-Math.PI / 2, 0, 0], this.mHipL, [0, 0, 0], [0, 0, 0]); }
     }
@@ -550,7 +609,7 @@ export class Humanoid {
       if (s.cower) { this.shL.rotation.set(2.2, 0, 0.5); this.shR.rotation.set(2.2, 0, -0.5); this.elL.rotation.x = 1.9; this.elR.rotation.x = 1.9; this.head.rotation.x = -0.5; }
       // reaching for the holster right after holstering
       if (this.drawT < 0.3 && weapon) { const k = Math.sin((this.drawT / 0.3) * Math.PI); this.shR.rotation.x -= k * 0.6; this.elR.rotation.x += k * 0.8; }
-    } else if (weapon === 'blaster') {
+    } else if (weapon === 'blaster' || weapon === 'longlas') {
       if (s.lowReady) {
         this.shR.rotation.set(0.6 + sw * amp * 0.1, 0, 0.1); this.elR.rotation.x = 0.4; this.handR.rotation.set(-0.6, 0, 0);
         this.shL.rotation.set(0.75, 0, 0.75); this.elL.rotation.x = 0.95;
@@ -560,12 +619,12 @@ export class Humanoid {
         this.shL.rotation.set(Math.PI / 2 * a + pitch * a - 0.05, 0, 0.8); this.elL.rotation.set(0.6, 0, 0);
         this.spine.rotation.y = -0.25; this.head.rotation.y = 0.25;
       }
-    } else if (weapon === 'pistols' || weapon === 'pistol') {
+    } else if (weapon === 'pistols' || weapon === 'pistol' || weapon === 'silenced') {
       const kick = Math.max(0, 0.15 - this.swingT) * 2;
       this.shR.rotation.set(Math.PI / 2 + pitch + kick, 0, weapon === 'pistols' ? -0.12 : 0.02); this.elR.rotation.set(0.05, 0, 0);
       if (weapon === 'pistols') { this.shL.rotation.set(Math.PI / 2 + pitch + kick * 0.6, 0, 0.12); this.elL.rotation.set(0.05, 0, 0); }
       else { this.shL.rotation.set(-sw * amp * 0.6 + 0.1, 0, -0.1); this.elL.rotation.x = 0.4; }
-      this.spine.rotation.y = weapon === 'pistol' ? -0.2 : 0; this.head.rotation.y = weapon === 'pistol' ? 0.2 : 0;
+      this.spine.rotation.y = weapon !== 'pistols' ? -0.2 : 0; this.head.rotation.y = weapon !== 'pistols' ? 0.2 : 0;
     } else if (weapon === 'knives') {
       const st = this.swingT / 0.3;
       if (st < 1) {

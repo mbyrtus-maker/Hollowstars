@@ -71,6 +71,51 @@ export function makePistol() {
   return g;
 }
 
+// The Sniper's LR-9 long-las: a long barrel with heat fins, a scope and a folded bipod
+export function makeLongLas() {
+  const g = new THREE.Group();
+  const dark = mat(0x26282d, { metal: 0.45, rough: 0.45 }), wood = mat(0x6a4a30, { rough: 0.7 }), brass = mat(0xb08a4a, { metal: 0.6, rough: 0.35 });
+  g.add(mesh(boxG(0.065, 0.1, 0.46), dark, 0, 0, -0.04));            // receiver
+  g.add(mesh(cylG(0.02, 0.022, 0.78, 8), dark, 0, 0.02, -0.66).rotateX(Math.PI / 2)); // barrel
+  for (let i = 0; i < 5; i++) g.add(mesh(cylG(0.032, 0.032, 0.025, 8), dark, 0, 0.02, -0.34 - i * 0.07).rotateX(Math.PI / 2)); // heat fins
+  g.add(mesh(cylG(0.03, 0.026, 0.1, 8), dark, 0, 0.02, -1.08).rotateX(Math.PI / 2)); // muzzle brake
+  g.add(mesh(cylG(0.03, 0.03, 0.3, 10), dark, 0, 0.11, -0.08).rotateX(Math.PI / 2)); // scope tube
+  g.add(mesh(cylG(0.04, 0.03, 0.06, 10), brass, 0, 0.11, -0.25).rotateX(Math.PI / 2));
+  g.add(mesh(new THREE.CircleGeometry(0.028, 10), glowMat(0xff5a3a, 0.8), 0, 0.11, -0.281, false).rotateY(Math.PI));
+  g.add(mesh(boxG(0.05, 0.13, 0.06), wood, 0, -0.1, 0.06));         // grip
+  g.add(mesh(boxG(0.055, 0.1, 0.32), wood, 0, -0.03, 0.32));        // stock
+  g.add(mesh(boxG(0.06, 0.13, 0.05), wood, 0, -0.04, 0.47));
+  for (const s of [-1, 1]) g.add(mesh(cylG(0.008, 0.008, 0.26, 5), dark, s * 0.03, -0.02, -0.52).rotateX(Math.PI / 2 - 0.06)); // folded bipod legs
+  const tip = mesh(boxG(0.025, 0.025, 0.025), glowMat(0xff6a4a, 2), 0, 0.02, -1.14, false);
+  g.add(tip);
+  g.userData.muzzle = tip;
+  return g;
+}
+
+// The Agent's suppressed sidearm
+export function makeSilenced() {
+  const g = makePistol();
+  const can = mesh(cylG(0.026, 0.026, 0.2, 10), mat(0x1a1b1f, { metal: 0.5, rough: 0.5 }), 0, 0.025, -0.36);
+  can.rotateX(Math.PI / 2);
+  g.add(can);
+  g.userData.muzzle.position.z = -0.47;
+  return g;
+}
+
+// A Sniper's proximity mine: a squat disc with a blinking arming light
+export function makeMine(color = '#ff4030') {
+  const g = new THREE.Group();
+  g.add(mesh(cylG(0.24, 0.28, 0.08, 14), mat(0x3a3d45, { metal: 0.5 }), 0, 0.04, 0));
+  g.add(mesh(cylG(0.12, 0.14, 0.05, 10), mat(0x22242a, { metal: 0.5 }), 0, 0.1, 0));
+  const l = mesh(new THREE.SphereGeometry(0.035, 6, 4), glowMat(0xff3030, 3), 0, 0.14, 0, false);
+  g.add(l);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.34, 20), new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: 0.5, side: THREE.DoubleSide, toneMapped: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.02;
+  g.add(ring);
+  g.userData.light = l;
+  return g;
+}
+
 export function makeKnife() {
   const g = new THREE.Group();
   g.add(mesh(cylG(0.02, 0.022, 0.12, 6), mat(0x2a2422), 0, 0, 0));

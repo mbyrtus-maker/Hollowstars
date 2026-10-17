@@ -5,6 +5,7 @@ import { Game } from '../shared/sim/game.js';
 import { K, TICK_DT } from '../shared/config.js';
 import { groundAt } from '../shared/world.js';
 import { TOWNS, GOOD_ORDER, buyPrice, packCount } from '../shared/economy.js';
+import { levelOf } from '../shared/config.js';
 
 let failures = 0;
 const check = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) failures++; };
@@ -95,7 +96,7 @@ for (const planet of ['duskvaro', 'thessaly', 'korrun']) {
   // armor raises max health
   p.pack.weave = 2; p.pack.alloy = 1;
   g.handle('p1', { t: 'upg', k: 'armor' });
-  check(p.gear.armor === 1 && p.maxHp === 115, `upgrade: armor tier 1 gives ${p.maxHp} max health`);
+  check(p.gear.armor === 1 && p.maxHp === 115 + 3 * (levelOf(p.xp).lv - 1), `upgrade: armor tier 1 gives ${p.maxHp} max health`);
   // ship berth raises cargo space
   p.pack = {}; p.pack.alloy = 3; p.pack.cell = 2;
   g.handle('p1', { t: 'upg', k: 'ship' });
@@ -115,11 +116,12 @@ for (const planet of ['duskvaro', 'thessaly', 'korrun']) {
   g.damage(officer, 999, p, { kind: 'bolt' });
   check(p.pack.scrap === 3, 'salvage: the officer drops 3 salvage');
   // persistence
+  const mhp = p.maxHp, xp0 = p.xp;
   g.removePlayer('p1');
   check(saved.Trader && saved.Trader.gear.weapon === 1 && saved.Trader.pack.meat === 1, 'profile: gear and pack are saved');
   g.addPlayer('p1', { name: 'Trader' });
   const p2 = g.playerOf('p1');
-  check(p2.gear.armor === 1 && p2.maxHp === 115 && p2.pack.scrap === 3, 'profile: gear and pack come back on rejoin');
+  check(p2.gear.armor === 1 && p2.maxHp === mhp && p2.pack.scrap === 3 && p2.xp === xp0, `profile: gear, pack and xp come back on rejoin (${p2.maxHp} hp, ${p2.xp} xp)`);
   // traffic brakes for people
   const car = [...g.ents.values()].find((e) => e.kind === K.TRAFFIC && e.wait <= 0 && e.vk !== 'hauler');
   run(g, 3);

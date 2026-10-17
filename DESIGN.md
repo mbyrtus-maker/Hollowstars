@@ -53,15 +53,28 @@ A planet is a data file: seed, biome palette, terrain parameters, settlement tem
 
 ### Classes (in the slice)
 
-Five classes are chosen at startup, and each has a signature weapon and Q/F/X abilities (see the README table).
+Six classes are chosen at startup, and each has a signature weapon and Q/F/X abilities (see the README table).
 
 - **Warden.** Arc blade and the Current, but no blaster. Wardens are **wanted**: Lancers recognise them on sight (faster detection) and hunter squads track them through the open desert.
 - **Gunslinger.** Twin pistols, plus burst, roll and deadeye.
 - **Soldier.** Rifle and charges, plus suppression and an overshield.
 - **Medic.** Sidearm and stims, plus ranged revive darts and an area heal.
 - **Spy.** Knives, a cloak, noisemakers, throwing knives, and Execute: blink behind a guard and finish him.
+- **Sniper.** A long-las that kills a Lancer in one bolt, a scope, overcharged piercing shots, proximity mines, a recon sweep that marks hostiles for the crew, and camouflage that builds while still.
+
+**Levels and advanced classes (built).** XP comes from everything the crew does, not just killing: jobs pay `reward / 5 + 100` (more for a ghost run), silent takedowns pay extra, and gathering, crafting and upgrading pay a little. Levels run 1-20 with a growing curve (`100 + 50 × (level − 1)` XP per level). Each level gives +3 health and 1% shorter cooldowns. At level 10 every class opens one advanced class, which merges over the base class: extra health, a changed or added ability, and sometimes a new weapon. The choice is stored per class, so a player who swaps class keeps each specialization.
+
+| Base | Advanced | Identity |
+| --- | --- | --- |
+| Warden | Guardian | Protector: wide perfect deflection, Bastion dome |
+| Gunslinger | Bounty Hunter | Marks, a wrist rocket, credit bonus |
+| Soldier | Commando | Jump jets, homing rocket pod, more armor |
+| Medic | Combat Surgeon | Stronger stims, Adrenal buff for the crew |
+| Spy | Agent | Suppressed pistol, fast slicing, holo-decoy |
+| Sniper | Phantom | Phase cloak shots, full-pierce overcharge |
 
 Planned:
+- A second advanced class per base class (for example a Warden Sentinel built around the Current instead of the blade).
 - Class skill trees.
 - A second weapon slot unlocked through progression (a Warden can never use a blaster).
 - Class-specific missions: a Medic evacuation, a Spy infiltration.
@@ -217,7 +230,7 @@ This ties all the systems together: missions weaken the regime, ownership create
 
 | Phase | Focus | Highlights |
 | --- | --- | --- |
-| 0 (this build) | Vertical slice | 4-player co-op (peer-to-peer or dedicated server), five classes, three planets and the crew's ship, stealth, blasters, blade, Current, speeders, 5 missions (2 off-world), merchants, procedural PBR textures |
+| 0 (this build) | Vertical slice | 4-player co-op (peer-to-peer or dedicated server), six classes with levels and advanced classes, three planets and the crew's ship, stealth, blasters, blade, Current, speeders, 5 missions (2 off-world), merchants, procedural PBR textures |
 | 1 | Depth on foot | Skill trees, more weapons, disguises and body dragging, squad AI, procedural missions, more of each planet |
 | 2 | Flight | Fly the Wayfarer yourself: atmospheric flight, fighters and dropships, seamless climb to orbit, space dogfights |
 | 3 | Capital ships | Subsystem combat, hangar landings, boarding interiors, frigate capture |

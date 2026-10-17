@@ -1,7 +1,7 @@
 // DOM HUD: vitals, loadout, compass, world markers, detection indicators, prompts,
 // mission tracker, notes, chat, and the job board / merchant modals.
 import * as THREE from 'three';
-import { K, F, MISSIONS, ITEMS, MERCHANTS, PLAYER_COLORS, POWERS, CLASSES } from '../shared/config.js';
+import { K, F, MISSIONS, ITEMS, MERCHANTS, PLAYER_COLORS, POWERS, CLASSES, ADVANCED, RANGED, LEVELS, effectiveClass, advancedFor } from '../shared/config.js';
 import { clamp, wrapAngle, yawTo, dist2 } from '../shared/math.js';
 import { PLANETS, PLANET_ORDER, SHIP } from '../shared/planets.js';
 import { GOODS, GOOD_ORDER, RECIPES, UPGRADES, UPGRADE_ORDER, packCount } from '../shared/economy.js';
@@ -13,7 +13,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 export class HUD {
   constructor() {
     this.el = {};
-    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body', 'num-pk', 'num-cap']) this.el[id] = $(id);
+    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body', 'num-pk', 'num-cap', 'lv-badge', 'bar-xp', 'career-btn', 'xp-pops']) this.el[id] = $(id);
     this.markerPool = [];
     this.bubblePool = [];
     this.detPool = [];
@@ -32,18 +32,20 @@ export class HUD {
 
   setDrawn(drawn) {
     this.drawnState = drawn;
-    const C = CLASSES[this.cls] || CLASSES.soldier;
+    const C = this.C || CLASSES.soldier;
     this.el['wpn-name'].textContent = drawn ? C.weaponName : `${C.weaponName} (holstered)`;
     this.el['slot-main'].classList.toggle('on', drawn);
     this.el.crosshair.classList.toggle('holstered', !drawn);
   }
 
-  setClass(cls) {
-    const C = CLASSES[cls];
+  setClass(cls, adv) {
+    const C = effectiveClass(cls, adv);
     this.cls = cls;
+    this.adv = adv || null;
+    this.C = C;
     this.el['cls-name'].textContent = C.name;
     this.el['wpn-name'].textContent = C.weaponName;
-    const ranged = ['blaster', 'pistols', 'pistol'].includes(C.weapon);
+    const ranged = RANGED.includes(C.weapon);
     this.el['heat-wrap'].classList.toggle('hidden', !ranged);
     this.el['blade-ic'].classList.toggle('hidden', ranged);
     this.el['lbl-gr'].textContent = C.throwable || 'Charges';
@@ -122,7 +124,20 @@ export class HUD {
     this.el['bar-heat'].style.width = pv.ht * 100 + '%';
     this.el['slot-main'].classList.toggle('over', !!pv.oh);
     const att = pv.up.includes('attune') ? 0.75 : 1;
-    const C = CLASSES[this.cls] || CLASSES.soldier;
+    const C = this.C || CLASSES.soldier;
+    // level and experience
+    if (pv.lv) {
+      const lk = pv.lv + ':' + pv.xp + ':' + pv.adv + ':' + this.cls;
+      if (this._lk !== lk) {
+        this._lk = lk;
+        this.el['lv-badge'].textContent = 'Lv ' + pv.lv;
+        this.el['bar-xp'].style.width = (pv.lv >= LEVELS.max ? 100 : clamp(pv.xp / (pv.xpn || 1), 0, 1) * 100) + '%';
+        this.el['bar-xp'].parentElement.title = pv.lv >= LEVELS.max ? 'Top level' : `${pv.xp} / ${pv.xpn} XP to level ${pv.lv + 1}`;
+        const ready = pv.lv >= LEVELS.advancedAt && !pv.adv && advancedFor(this.cls).length > 0;
+        this.el['career-btn'].classList.toggle('ready', ready);
+        this.el['career-btn'].title = ready ? 'An advanced class is open (K)' : 'Career (K)';
+      }
+    }
     for (const e of this.pwEls || []) {
       const k = e.dataset.k;
       if (k === 'leap') { e.classList.toggle('na', pv.fo < POWERS.leap.cost * att); e.classList.toggle('on', lp.leapCharge > 0.16); continue; }
@@ -130,6 +145,7 @@ export class HUD {
       if (!st) continue;
       const [cd, max, actv, charges] = st;
       const A = C.abilities[k];
+      if (!A) continue;
       const cost = POWERS[A.id] && POWERS[A.id].cost;
       e.classList.toggle('na', (cost && pv.fo < cost * att) || charges === 0);
       e.classList.toggle('on', actv > 0);
@@ -195,7 +211,7 @@ export class HUD {
     const pk = JSON.stringify(g.party);
     if (pk !== this.lastPartyKey) {
       this.lastPartyKey = pk;
-      this.el.party.innerHTML = g.party.map(([id, name, color, hp, down, cr, cls, aboard]) => `<div class="pm ${down ? 'down' : ''}"><i style="background:${PLAYER_COLORS[color]}"></i><span>${esc(name)}${id === myId ? ' (you)' : ''}${aboard ? ' <em class="aboard">aboard</em>' : ''}</span><div class="b"><div style="width:${down ? 100 : clamp(hp, 0, 100)}%"></div></div></div>`).join('');
+      this.el.party.innerHTML = g.party.map(([id, name, color, hp, down, cr, cls, aboard, lv, adv]) => `<div class="pm ${down ? 'down' : ''}"><i style="background:${PLAYER_COLORS[color]}"></i><span>${lv ? `<span class="lv" title="${esc(effectiveClass(cls, adv).name)}">${lv}</span>` : ''}${esc(name)}${id === myId ? ' (you)' : ''}${aboard ? ' <em class="aboard">aboard</em>' : ''}</span><div class="b"><div style="width:${down ? 100 : clamp(hp, 0, 100)}%"></div></div></div>`).join('');
     }
   }
 
@@ -253,6 +269,12 @@ export class HUD {
             path.setAttribute('stroke-opacity', String(0.4 + sus * 0.6));
           }
         }
+      }
+      if ((v.kind === K.LANCER || v.kind === K.OFFICER) && (v.flags & F.MARKED) && !(v.flags & F.DEAD)) {
+        // recon and bounty marks show through walls
+        const p = this.project(camera, v.x, v.y + 2.5, v.z);
+        if (p) marker('marked', `<b></b>${Math.round(Math.hypot(v.x - me.x, v.z - me.z))}m`, p.x, p.y);
+        marks.push({ deg: this.headingDeg(yawTo(me.x, me.z, v.x, v.z)), icon: '◇', color: '#ffd27a' });
       }
       if (v.kind === K.LANCER || v.kind === K.OFFICER) {
         if (v.flags & F.ALERT) marks.push({ deg: this.headingDeg(yawTo(me.x, me.z, v.x, v.z)), icon: '▾', color: '#e0384b' });
@@ -506,6 +528,59 @@ export class HUD {
     clearInterval(this._wkT);
     this._wkT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.wk')) { clearInterval(this._wkT); return; } render(); }, 500);
   }
+  xpGain(n) {
+    if (!n) return;
+    const box = this.el['xp-pops'];
+    // merge bursts that land together (a kill and its silent bonus) into one number
+    const last = box.lastElementChild;
+    if (last && performance.now() - last._t < 350) { last._n += n; last.textContent = `+${last._n} XP`; return; }
+    const e = document.createElement('div');
+    e.className = 'xp-pop';
+    e._t = performance.now(); e._n = n;
+    e.textContent = `+${n} XP`;
+    box.appendChild(e);
+    setTimeout(() => e.remove(), 1500);
+    while (box.children.length > 4) box.firstElementChild.remove();
+  }
+
+  openCareer(getPv, cls, send, onClose) {
+    let key = '';
+    const abList = (abs) => Object.entries(abs).map(([k, a]) => `<span><kbd>${k.toUpperCase()}</kbd> ${esc(a.name)}</span>`).join('');
+    const render = (force) => {
+      const pv = getPv();
+      if (!pv) return;
+      const k = JSON.stringify([pv.lv, pv.xp, pv.adv, cls]);
+      if (!force && k === key) return;
+      key = k;
+      const B = CLASSES[cls];
+      const open = pv.lv >= LEVELS.advancedAt;
+      const top = pv.lv >= LEVELS.max;
+      const toGo = open ? '' : `<span>Advanced classes open at level ${LEVELS.advancedAt}.</span>`;
+      const base = `<div class="adv-card ${!pv.adv ? 'on' : ''}"><h3>${esc(B.name)}</h3><div class="role">${esc(B.role)}</div><p>${esc(B.desc || '')}</p><div class="ab">${abList(B.abilities)}</div>
+        ${pv.adv ? `<button class="ghosty" data-adv="">Go back to ${esc(B.name)}</button>` : '<div class="role">Your class now</div>'}</div>`;
+      const advs = advancedFor(cls).map((id) => {
+        const A = ADVANCED[id];
+        const E = effectiveClass(cls, id);
+        const on = pv.adv === id;
+        const perks = [];
+        if (A.hp) perks.push(`+${A.hp} health`);
+        if (A.weaponName) perks.push(esc(A.weaponName));
+        return `<div class="adv-card ${on ? 'on' : ''}"><h3>${esc(A.name)}</h3><div class="role">${esc(A.role)}${perks.length ? ' — ' + perks.join(', ') : ''}</div><p>${esc(A.desc)}</p><div class="ab">${abList(E.abilities)}</div>
+          ${on ? '<div class="role">Your class now</div>' : `<button data-adv="${id}" ${open ? '' : 'disabled'}>${open ? `Become a ${esc(A.name)}` : `Opens at level ${LEVELS.advancedAt}`}</button>`}</div>`;
+      }).join('');
+      this.el['modal-body'].innerHTML = `<div class="career"><h2>Career</h2>
+        <div class="lvline"><b>Level ${pv.lv}</b><span>${top ? 'Top level reached' : `${pv.xp.toLocaleString()} / ${pv.xpn.toLocaleString()} XP to level ${pv.lv + 1}`}</span>${toGo}</div>
+        <div class="bigxp"><div style="width:${top ? 100 : clamp(pv.xp / (pv.xpn || 1), 0, 1) * 100}%"></div></div>
+        <p class="sub">Every level adds ${LEVELS.hpPer} health and shortens cooldowns a little. Earn experience from jobs, takedowns (more if nobody saw), slicing, sabotage, revives, gathering and crafting. Your advanced class is kept per class and can be changed any time you're not being hunted.</p>
+        <div class="adv-grid">${base}${advs}</div></div>`;
+      this.el['modal-body'].querySelectorAll('[data-adv]').forEach((b) => b.addEventListener('click', () => { send({ t: 'adv', id: b.dataset.adv || null }); setTimeout(() => render(true), 250); }));
+    };
+    this.openModal('', onClose);
+    render(true);
+    clearInterval(this._cvT);
+    this._cvT = setInterval(() => { if (!this.modalOpen || !this.el['modal-body'].querySelector('.career')) { clearInterval(this._cvT); return; } render(); }, 400);
+  }
+
   openModal(html, onClose) {
     this.el['modal-body'].innerHTML = html;
     this.el.modal.classList.remove('hidden');

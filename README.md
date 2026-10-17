@@ -6,7 +6,7 @@ A 4-player co-op space-opera action game for the browser. This is the first play
 
 ## What's in this slice
 
-- **Five classes, chosen at startup:**
+- **Six classes, chosen at startup:**
 
   | Class | Kit | Q / F / X |
   | --- | --- | --- |
@@ -15,6 +15,19 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   | Soldier | Assault rifle, 5 thermal charges | Suppressive fire (no overheating) / Bulwark (kinetic overshield) |
   | Medic | Sidearm, 6 stim packs, one-second revives | Med burst (heals and revives everyone nearby) / Stim dart (heal or revive a teammate at range) |
   | Spy | Twin vibro-knives, cloaking device, noisemakers | Execute (blink behind a guard and finish him) / Throw knife (silent, 3 charges) / Cloak |
+  | Sniper | LR-9 long-las (one bolt drops a trooper; right mouse scopes in), camouflage that improves while you keep still | Overcharged shot (double damage, punches through) / Proximity mine (2 charges) / Recon sweep (marks every hostile ahead for the crew, through walls) |
+
+- **Experience and levels.** Jobs, takedowns (more if nobody saw), cameras, sabotage, revives, gathering, crafting and fitting upgrades all earn XP. Each level up to 20 adds 3 health and trims ability cooldowns. Your level is saved with your profile.
+- **Advanced classes at level 10.** Open the Career screen (K) to specialize. You can switch back at any time you're not being hunted, and the choice is kept per class.
+
+  | Base | Advanced class | What changes |
+  | --- | --- | --- |
+  | Warden | Guardian | Wider deflection arc, every block is perfect, +30 health. X: Bastion, a dome that stops every bolt fired into it |
+  | Gunslinger | Bounty Hunter | +25% credits from kills. F: wrist rocket. X: mark a bounty (the crew deals 50% more to the target, and you collect when it dies) |
+  | Soldier | Commando | +30 health, two more charges. F: jump jets. X: a pod of six homing rockets |
+  | Medic | Combat Surgeon | Stims heal 30% more. X: Adrenal, an overshield plus 25% more damage for the crew nearby |
+  | Spy | Agent | Whisper suppressed pistol, slices twice as fast, guards are slower to notice you. F: holo-decoy that draws guards with noise |
+  | Sniper | Phantom | Better camouflage. X: Phase cloak, whose first shot keeps you hidden and hits 50% harder. Overcharged shots pierce every target in line |
 
 - **Co-op for up to 4 players**, three ways:
   - Peer-to-peer from a static site such as GitHub Pages: one player hosts, friends join with a crew code.
@@ -102,6 +115,7 @@ Open `http://localhost:8080`, enter a callsign and a crew room name, then make p
 | Fire / swing | Left mouse |
 | Aim down sights / block and deflect (Warden) | Right mouse |
 | Class abilities | Q / F / X |
+| Career: level, XP and advanced class | K |
 | Throwable (thermal charge, or noisemaker for the Spy) / medpack or stim | G / H |
 | Interact (hold to slice terminals, cut locks, revive) | E |
 | First / third person | V |
@@ -119,6 +133,7 @@ On a speeder: W/S for throttle, steer with the mouse (or A/D), Shift to boost, S
 - Slicing the security office terminal loops the cameras for two minutes.
 - Sneak up behind Commander Rhal and hold E to lift his keycard. Pulling him (F) can also knock it loose.
 - Fuel tanks chain-explode. Stand back.
+- A Sniper who stays still and crouched almost vanishes. Sweep a garrison with Recon before the crew goes in.
 
 ## Project layout
 
@@ -153,6 +168,7 @@ node tools/missions-test.js   # plays the three Dusk Varo missions end-to-end ag
 node tools/travel-test.js     # checks every planet's layout, flies the Wayfarer, plays both off-world missions
 node tools/economy-test.js    # workers, hunters, traders and traffic for 10 minutes per planet, then gather/trade/craft/upgrade
 node tools/classes-test.js    # exercises every class ability
+node tools/career-test.js     # Sniper kit, XP and levels, and every advanced class
 node tools/soak.js 240 korrun # 4 scripted bots for 4 minutes on a planet; reports tick cost and errors
 ```
 

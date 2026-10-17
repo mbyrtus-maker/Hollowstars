@@ -1,6 +1,6 @@
 // Projectiles, grenades, explosions, the arc blade, and psionic Current powers.
 
-import { K, WEAPONS, POWERS, F } from '../config.js';
+import { K, WEAPONS, POWERS, F, effectiveClass } from '../config.js';
 import { clamp, angleDiff, yawTo, segVsVertical, dist2, dirFromYawPitch } from '../math.js';
 import { raycast, lineOfSight, terrainHeight, queryBoxes } from '../world.js';
 import { isUnaware } from './ai.js';
@@ -8,7 +8,34 @@ import { isUnaware } from './ai.js';
 const HIT_R = { [K.CRITTER]: 0.6, [K.SPEEDER]: 1.3, [K.CAMERA]: 0.42, [K.PICKUP]: 0, [K.TRAFFIC]: 1.2 };
 
 export function hittable(e) {
-  return !e.dead && e.kind !== K.PICKUP && e.kind !== K.GRENADE;
+  return !e.dead && e.kind !== K.PICKUP && e.kind !== K.GRENADE && e.kind !== K.MINE && e.kind !== K.DECOY;
+}
+
+// Guardians' Bastion domes swallow enemy bolts that cross them
+function inBastion(game, b) {
+  for (const p of game.players()) {
+    if ((p.act && p.act.bastion || 0) <= game.time) continue;
+    if (Math.hypot(b.x - p.x, b.y - (p.y + 1), b.z - p.z) < 5.2) return p;
+  }
+  return null;
+}
+// Rockets steer toward their mark
+function steer(game, b, dt) {
+  const t = game.ents.get(b.homing);
+  if (!t || t.dead) return;
+  const sp = Math.hypot(b.vx, b.vy, b.vz);
+  let dx = t.x - b.x, dy = t.y + 1 - b.y, dz = t.z - b.z;
+  const l = Math.hypot(dx, dy, dz) || 1;
+  const k = Math.min(1, dt * 4.5);
+  const nx = b.vx / sp + (dx / l - b.vx / sp) * k, ny = b.vy / sp + (dy / l - b.vy / sp) * k, nz = b.vz / sp + (dz / l - b.vz / sp) * k;
+  const nl = Math.hypot(nx, ny, nz) || 1;
+  b.vx = (nx / nl) * sp; b.vy = (ny / nl) * sp; b.vz = (nz / nl) * sp;
+  b.steerT = (b.steerT || 0) + dt;
+  if (b.steerT > 0.15) { b.steerT = 0; game.event(['steer', b.id, +b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), +b.vx.toFixed(2), +b.vy.toFixed(2), +b.vz.toFixed(2)]); }
+}
+function boom(game, b, x, y, z) {
+  game.event(['bend', b.id, +x.toFixed(2), +y.toFixed(2), +z.toFixed(2), 0]);
+  explode(game, x, y, z, b.explode.r, b.explode.dmg, game.ents.get(b.owner), 'rocket');
 }
 
 // ------------------------------------------------------------------ bolts
@@ -18,6 +45,12 @@ export function stepBolts(game, dt) {
   for (let i = game.bolts.length - 1; i >= 0; i--) {
     const b = game.bolts[i];
     b.life -= dt;
+    if (b.homing) steer(game, b, dt);
+    if (b.team === 'enemy' && inBastion(game, b)) {
+      game.event(['bend', b.id, +b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), 3]);
+      game.bolts.splice(i, 1);
+      continue;
+    }
     const sp = Math.hypot(b.vx, b.vy, b.vz);
     const len = sp * dt;
     const dx = b.vx / sp, dy = b.vy / sp, dz = b.vz / sp;
@@ -30,6 +63,7 @@ export function stepBolts(game, dt) {
     for (const e of game.ents.values()) {
       if (e.x < minX || e.x > maxX || e.z < minZ || e.z > maxZ) continue;
       if (e.id === b.owner || !hittable(e)) continue;
+      if (b.hitIds && b.hitIds.includes(e.id)) continue;
       if (e.kind === K.PLAYER && (b.team === 'player' || e.downed)) continue;
       if (e.kind === K.SPEEDER && e.driver && b.team === 'player') continue;
       if ((e.kind === K.LANCER || e.kind === K.OFFICER || e.kind === K.CAMERA) && b.team === 'enemy') continue;
@@ -55,13 +89,22 @@ export function stepBolts(game, dt) {
       if (e.kind === K.PLAYER && tryDeflect(game, e, b, hx, hy, hz)) {
         continue; // bolt re-aimed, keep it alive
       }
+      if (b.explode) { boom(game, b, hx, hy, hz); game.bolts.splice(i, 1); continue; }
       const head = e.kind !== K.CAMERA && e.kind !== K.SPEEDER && target.y > e.y + (e.flags & F.CROUCH ? 0.9 : e.h - 0.32);
       const silentKill = b.knife && isUnaware(e);
       game.damage(e, silentKill ? 999 : b.dmg * (head ? 1.8 : 1), game.ents.get(b.owner), { kind: b.knife ? 'knife' : 'bolt', head, silent: silentKill || (b.knife && e.hp <= b.dmg), x: hx, y: hy, z: hz, dir: [dx, dy, dz], deflected: b.deflected });
+      // overcharged long-las bolts punch straight through and keep going
+      if (b.pierce > 0 && e.kind !== K.CAMERA) {
+        b.pierce--;
+        (b.hitIds ||= []).push(e.id);
+        game.event(['pierce', +hx.toFixed(2), +hy.toFixed(2), +hz.toFixed(2)]);
+        continue;
+      }
       game.event(['bend', b.id, +hx.toFixed(2), +hy.toFixed(2), +hz.toFixed(2), e.kind === K.CAMERA || e.kind === K.SPEEDER ? 2 : 1]);
       game.bolts.splice(i, 1);
       continue;
     }
+    if (hit && b.explode) { boom(game, b, hx - dx * 0.3, hy - dy * 0.3, hz - dz * 0.3); game.bolts.splice(i, 1); continue; }
     if (hit) {
       if (hit.box && hit.box.tag && b.team === 'player') {
         const d = Object.values(W.destructibles).find((q) => q.boxId === hit.box.id);
@@ -83,13 +126,15 @@ function tryDeflect(game, p, b, hx, hy, hz) {
   if (b.team !== 'enemy' || p.weapon !== 'blade' || !p.drawn || p.vehicle || p.downed) return false;
   const bw = WEAPONS.blade;
   const blocking = p.blocking;
+  const PC = effectiveClass(p.cls, p.adv);
   const inYaw = yawTo(0, 0, -b.vx, -b.vz);
-  if (Math.abs(angleDiff(p.yaw, inYaw)) > (blocking ? bw.deflectCone : bw.autoDeflectCone)) return false;
+  if (Math.abs(angleDiff(p.yaw, inYaw)) > (blocking ? Math.max(bw.deflectCone, PC.deflectCone || 0) : (PC.deflectCone || bw.autoDeflectCone))) return false;
   const att = p.upgrades.attune ? 0.6 : 1;
   const cost = (blocking ? bw.deflectFocus : bw.autoDeflectFocus) * att;
   if (blocking) { if (p.focus < cost) return false; p.focus -= cost; p.focusUsedAt = game.time; }
   else p.focus = Math.max(0, p.focus - cost); // the automatic catch never fails, it just tires you
-  const perfect = blocking && game.time - p.blockStart < bw.perfectWindow;
+  // a Guardian holding block always sends it home
+  const perfect = blocking && (game.time - p.blockStart < bw.perfectWindow || p.adv === 'guardian');
   const shooter = game.ents.get(b.owner);
   const sp = Math.hypot(b.vx, b.vy, b.vz) * 1.15;
   let d;
