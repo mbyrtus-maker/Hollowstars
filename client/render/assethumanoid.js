@@ -181,7 +181,9 @@ export class AssetHumanoid extends Humanoid {
   part(bone, geo, mat, color, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
     // hoods and caps were shaped for the procedural head; the pack head is taller with the face set
     // further back, so they would sit over the eyes. Lift them, open the face and give them room.
-    if (bone === this.head && geo.type === 'SphereGeometry' && geo.parameters.thetaLength >= Math.PI * 0.49) {
+    // (only open caps: full spheres are helmets and ellipsoids, and keep their own shape)
+    const cap = geo.type === 'SphereGeometry' && geo.parameters.radius < 0.3 && geo.parameters.thetaLength >= Math.PI * 0.49 && geo.parameters.thetaLength < Math.PI * 0.9;
+    if (bone === this.head && cap) {
       const r = geo.parameters.radius;
       if (geo.parameters.thetaLength > Math.PI * 0.55) {
         // a hood: a crown, then sides and back that fall to the collar with the face left open
