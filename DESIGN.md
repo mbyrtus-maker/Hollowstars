@@ -79,7 +79,7 @@ Planned:
   - Later level (around 15): choose one of two branches. For example, a Guardian goes on as a shield-wall protector or as a blade duelist, and a Commando as a jump-jet assault trooper or a heavy-weapons specialist.
   - Each branch then has its own run of abilities that unlock at set levels up to 20, possibly with the level cap raised to make room.
   - **Resetting a branch.** A player can reset a branch back to their advanced class and then pick a branch again. The reset never goes further than that: a character can't undo their advanced class or flip to a different class line. This changes today's build, where the Career screen lets you return to the base class and the advanced class is kept separately for every class.
-  - **Reset cost.** The cost scales with the player: what they would earn, on average, from 3 missions at their current level. The cost is worked out when they reset, from the jobs open to them at that level.
+  - **Reset cost.** A fixed price: what 3 level-15 missions pay, at the average level-15 mission reward (3 × that average). It doesn't change with the player's own level, so a reset costs the same at level 16 as at level 20.
   - **Choosing abilities.** Unlocked abilities go into a pool. The player picks which ones sit in their ability slots, from the Career screen.
   - **A fourth slot at level 10.** Q, F and X stay for everyone. Unlocking the advanced class adds a fourth ability slot. Its key is still to be chosen (Z is free; C and V are taken by crouch and camera).
   - **Looks.** Every advanced class has its own look (built), and each branch adds another one on top.
