@@ -945,7 +945,16 @@ function makeSign(d) {
   x.fillStyle = x.strokeStyle; x.font = '600 38px "Chakra Petch", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
   x.fillText(d.kind === 'exchange' ? 'EXCHANGE' : 'WORKSHOP', 128, 50);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.98), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.35, side: THREE.DoubleSide }));
+  // Two single-sided faces back to back, so the lettering reads correctly from the street and
+  // from inside. d.yaw points out of the door; a plane's readable face is its +Z side.
+  const m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.35 });
+  const board = new THREE.Group();
+  const out = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.98), m);
+  out.rotation.y = Math.PI; out.position.z = -0.02;
+  const inn = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.98), m);
+  inn.position.z = 0.02;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(2.66, 1.04, 0.03), new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.8 }));
+  board.add(back, out, inn);
   board.position.set(d.x, d.y, d.z); board.rotation.y = d.yaw;
   return board;
 }
