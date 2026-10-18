@@ -106,6 +106,13 @@ function initMenu() {
     if (locked) { $('pause').classList.add('hidden'); return; }
     if (!S.hud.modalOpen && !S.chatting) $('pause').classList.remove('hidden');
   };
+  // L takes the mouse back without a click (after a menu, or if the cursor has drifted off the crosshair)
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyL' || !S.running || S.hud.modalOpen || S.chatting) return;
+    S.audio.init(); S.audio.resume();
+    $('pause').classList.add('hidden');
+    S.input.recapture();
+  });
   window.addEventListener('resize', () => S.scene && S.scene.resize());
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && S.hud.modalOpen) { S.hud.closeModal(); }

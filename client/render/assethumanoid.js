@@ -17,6 +17,9 @@ const HAIR = {
 };
 // nominal ground speed of each locomotion clip (m/s), used to keep feet from skating
 const GAIT = { Walk_Loop: 1.45, Jog_Fwd_Loop: 3.7, Sprint_Loop: 6.4, Crouch_Fwd_Loop: 1.6, Walk_Formal_Loop: 1.3 };
+// where the first foot lands in each locomotion clip (fraction of the loop; the other lands half a loop
+// later), measured from the clips' foot heights, so footstep sounds land with the feet
+const STEP0 = { Walk_Loop: -0.016, Jog_Fwd_Loop: 0.016, Sprint_Loop: 0, Crouch_Fwd_Loop: -0.016, Walk_Formal_Loop: -0.023 };
 
 const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), q1 = new THREE.Quaternion(), q2 = new THREE.Quaternion(), m1 = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0), RIGHT = new THREE.Vector3(1, 0, 0), DOWN = new THREE.Vector3(0, -1, 0);
@@ -416,6 +419,12 @@ export class AssetHumanoid extends Humanoid {
     this.play(upper, 'upper', uopts.restart ? 0.06 : 0.2, { ts: uts, ...uopts });
     this.swingNew = false;
     this.mixer.update(dt);
+    // footsteps (entities.js sounds one each time phase passes a multiple of pi) follow the clip's own feet
+    const L = this.layer.lower, c0 = STEP0[L.name];
+    if (moving && c0 !== undefined && L.a) {
+      const base = 2 * Math.PI * (L.a.time / L.a.getClip().duration - c0);
+      this.phase = 2 * Math.PI * Math.round((this.phase - base) / (2 * Math.PI)) + base;
+    }
 
     // ---------------- procedural touches on top of the clips
     // strafing: legs turn toward the step, the chest stays on target

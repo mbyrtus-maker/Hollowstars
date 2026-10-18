@@ -57,6 +57,13 @@ export class Input {
       this._lockT = setTimeout(() => { if (!document.pointerLockElement && !this.locked) fail(); }, 600);
     } catch { fail(); }
   }
+  // Grab the mouse again (the L key): when the pointer is loose, or when the browser refused pointer
+  // lock earlier and the cursor has wandered off the crosshair, try a real pointer lock once more.
+  recapture() {
+    if (document.pointerLockElement === this.canvas) return;
+    if (this.fallback) { this.fallback = false; this.locked = false; document.body.style.cursor = ''; }
+    this.lock();
+  }
   setFallbackLock(v) {
     this.locked = v;
     document.body.style.cursor = v ? 'crosshair' : '';

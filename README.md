@@ -142,6 +142,7 @@ Open `http://localhost:8080`, enter a callsign and a crew room name, then make p
 | First / third person | V |
 | Ping a spot for your crew | T or middle mouse |
 | Toggle the mission tracker / chat | Tab / Enter |
+| Recapture the mouse (after a menu, or if the pointer has drifted off the crosshair) | L |
 
 On a speeder: W/S for throttle, steer with the mouse (or A/D), Shift to boost, Space to hop, left mouse for cannons, E to dismount.
 
