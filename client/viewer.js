@@ -55,6 +55,24 @@ export async function runViewer(canvas, params) {
     loop();
     return;
   }
+  if (set === 'ship') {
+    // the Wayfarer with its ramp at &ramp=0..1, orbited: &ang=0&dist=9&h=2&ty=1.2
+    const { makeWayfarer } = await import('./render/ship.js');
+    const w = makeWayfarer();
+    scene.add(w.group);
+    w.group.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
+    w.setRamp(+(params.get('ramp') ?? 1));
+    w.setThrust(+(params.get('thrust') || 0));
+    sun.shadow.camera.left = -14; sun.shadow.camera.right = 14; sun.shadow.camera.top = 14; sun.shadow.camera.bottom = -14; sun.shadow.camera.far = 60;
+    sun.position.set(-6, 12, 10);
+    const cam = new THREE.PerspectiveCamera(+(params.get('fov') || 40), innerWidth / innerHeight, 0.1, 200);
+    const a = +(params.get('ang') || 0), r = +(params.get('dist') || 9), ty = +(params.get('ty') || 1.2), tz = +(params.get('tz') || 5);
+    cam.position.set(Math.sin(a) * r, +(params.get('h') || 2), tz + Math.cos(a) * r); cam.lookAt(0, ty, tz);
+    window.__viewer = { scene, Assets, ship: w };
+    const loop = () => { requestAnimationFrame(loop); renderer.render(scene, cam); };
+    loop();
+    return;
+  }
   if (set === 'bike') {
     // speeder bikes in a few paints, one with a rider: &ang=0.8&dist=6
     const { makeSpeeder } = await import('./render/models.js');
