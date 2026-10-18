@@ -133,6 +133,15 @@ export class AssetHumanoid extends Humanoid {
     // the procedural head's landmarks (eyes at 0.155 up and 0.1 forward of this bone) lined up with the
     // pack head's, so hats, helmets, visors and masks sit where they were designed to
     this.head = hold('head', 'Head', new THREE.Vector3(0, head.y + 0.002, head.z + 0.042), undefined, new THREE.Vector3(1.06, 1.04, 1.08));
+    // Fitted to the pack skull as measured in the animated pose, in this mount's frame:
+    // - it sits 5.5 cm lower than the procedural head did, so the mount comes down to match the eyes;
+    // - front to back it runs from the brow at -0.12 to the crown's back at +0.06, where the procedural
+    //   head ran -0.11 to +0.11, so depth is squeezed to 81% and shifted forward: face pieces stay on
+    //   the face and hoods and helmets close round the back of the skull instead of ballooning behind
+    this.head.translateY(-0.057);
+    this.head.scale.z *= 0.81;
+    this.head.translateZ(-0.008 - 0.027);
+    this.head.updateMatrixWorld(true);
     this.shL = hold('shL', 'upperarm_l', W('upperarm_l'), limbQ('upperarm_l', 'lowerarm_l'), new THREE.Vector3(1.18, len('upperarm_l', 'lowerarm_l') / 0.29, 1.18));
     this.shR = hold('shR', 'upperarm_r', W('upperarm_r'), limbQ('upperarm_r', 'lowerarm_r'), new THREE.Vector3(1.18, len('upperarm_r', 'lowerarm_r') / 0.29, 1.18));
     this.elL = hold('elL', 'lowerarm_l', W('lowerarm_l'), limbQ('lowerarm_l', 'hand_l'), new THREE.Vector3(1.12, len('lowerarm_l', 'hand_l') / 0.27, 1.12));
@@ -187,15 +196,22 @@ export class AssetHumanoid extends Humanoid {
     // hoods and caps were shaped for the procedural head; the pack head is taller with the face set
     // further back, so they would sit over the eyes. Lift them, open the face and give them room.
     // (only open caps: full spheres are helmets and ellipsoids, and keep their own shape)
-    const cap = geo.type === 'SphereGeometry' && geo.parameters.radius < 0.3 && geo.parameters.thetaLength >= Math.PI * 0.49 && geo.parameters.thetaLength < Math.PI * 0.9;
-    if (bone === this.head && cap) {
-      const r = geo.parameters.radius;
-      if (geo.parameters.thetaLength > Math.PI * 0.55) {
+    if (bone === this.head) {
+      // Headgear was shaped around the procedural head; the pack skull and its hair are fuller, so
+      // anything that wraps the skull gets more room, and anything that covers the crown hides the
+      // pack hair (which would otherwise poke through it).
+      const P = geo.parameters || {};
+      const sphere = geo.type === 'SphereGeometry';
+      const shell = sphere && P.radius === 1 && P.thetaLength >= Math.PI * 0.99; // ellipsoid helmets, masks, shrouds
+      const hood = sphere && P.radius < 0.3 && P.thetaLength > Math.PI * 0.55 && P.thetaLength < Math.PI * 0.9;
+      const cap = sphere && P.radius < 0.3 && P.thetaLength >= Math.PI * 0.49 && P.thetaLength <= Math.PI * 0.55;
+      const crown = geo.type === 'CylinderGeometry' && P.radiusTop >= 0.09 && P.radiusTop <= 0.16 && P.height >= 0.03; // hat crowns
+      if (hood) {
         // a hood: a crown, then sides and back that fall to the collar with the face left open
-        const face = 1.05; // half-width of the opening, radians around the head
-        const crown = new THREE.SphereGeometry(r, 14, 4, 0, Math.PI * 2, 0, Math.PI * 0.3);
-        const sides = new THREE.SphereGeometry(r, 14, 6, Math.PI * 1.5 + face, Math.PI * 2 - face * 2, Math.PI * 0.3, Math.PI * 0.46);
-        const outer = mergeGeometries([crown.toNonIndexed(), sides.toNonIndexed()]).scale(1.16, 1.16, 1.18);
+        const r = P.radius, face = 1.05; // half-width of the opening, radians around the head
+        const top = new THREE.SphereGeometry(r, 14, 4, 0, Math.PI * 2, 0, Math.PI * 0.3);
+        const sides = new THREE.SphereGeometry(r, 14, 6, Math.PI * 1.5 + face, Math.PI * 2 - face * 2, Math.PI * 0.3, Math.PI * 0.5);
+        const outer = mergeGeometries([top.toNonIndexed(), sides.toNonIndexed()]).scale(1.12, 1.16, 1.2);
         // and a lining facing inward, so the inside of the hood isn't see-through around the face
         const inner = outer.clone().scale(0.97, 0.97, 0.97);
         const ip = inner.attributes.position, iu = inner.attributes.uv;
@@ -207,10 +223,27 @@ export class AssetHumanoid extends Humanoid {
         }
         geo = mergeGeometries([outer, inner]);
         geo.computeVertexNormals();
-        rx = -0.12;
-      } else {
-        // caps and helmets: a touch roomier, for the pack hair underneath
-        geo = geo.clone().scale(1.05, 1.03, 1.05);
+        y += 0.035; rx = -0.12;
+        this.hooded = true;
+      } else if (cap) {
+        // the pack hair goes, so the cap only needs room for the skull: snug, and up off the brow
+        // (hard hats and helmets keep room for the skull; soft caps hug it)
+        if (mat === 'plate') geo = geo.clone().scale(1.1, 1.06, 1.12);
+        else geo = geo.clone().scale(0.86, 1.02, 0.92);
+        y += mat === 'plate' ? 0.02 : 0.04;
+        this.hooded = true;
+      } else if (shell) {
+        // hard helmets get room for the skull; cloth masks and shrouds hug it, so their eye slits show
+        if (mat === 'plate') geo = geo.clone().scale(1.12, 1.07, 1.14);
+        this.hooded = true;
+      } else if (geo.type === 'TorusGeometry' && P.radius >= 0.09 && P.radius <= 0.12) {
+        // headbands and goggle straps: drawn in to the pack skull, which is narrower than the old head
+        // (the pack skull is narrower, and its centre sits 3 cm forward of the old head's)
+        geo = geo.clone().scale(0.8, 1, 1.05);
+        y -= 0.025; z -= 0.03;
+      } else if (crown) {
+        geo = geo.clone().scale(1.12, 1.07, 1.18);
+        y += 0.012;
       }
     }
     super.part(bone, geo, mat, color, x, y, z, rx, ry, rz);
@@ -235,6 +268,7 @@ export class AssetHumanoid extends Humanoid {
         this.armature.add(mesh);
         mesh.bind(skel, o.bindMatrix);
         this.assetMeshes.push(mesh);
+        (this.hairMeshes ||= []).push(mesh);
       });
     }
   }
@@ -242,6 +276,8 @@ export class AssetHumanoid extends Humanoid {
   bake() {
     // procedural parts become one skinned mesh per material on the virtual bones
     this.asset.visible = true;
+    // a hood replaces the hair beneath it
+    if (this.hooded && this.hairMeshes) for (const m of this.hairMeshes) { m.parent.remove(m); this.assetMeshes.splice(this.assetMeshes.indexOf(m), 1); }
     super.bake();
     this.meshes = [...this.meshes, ...this.assetMeshes];
     this.mixer = new THREE.AnimationMixer(this.asset);

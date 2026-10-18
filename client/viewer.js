@@ -21,6 +21,40 @@ export async function runViewer(canvas, params) {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 30), new THREE.MeshStandardMaterial({ color: 0x8a6448, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const set = (params.get('set') || 'crew');
+  if (set === 'heads') {
+    // headgear audit: every class, advanced class, branch and townsperson, as a man and a woman, in
+    // pages of eight head-and-shoulders portraits. window.__heads.show(page, angle) re-poses the row.
+    const looks = [];
+    for (const cls of ['warden', 'gunslinger', 'soldier', 'medic', 'spy', 'sniper']) looks.push(['player', { cls }, cls]);
+    const ADV = { warden: 'guardian', gunslinger: 'bounty', soldier: 'commando', medic: 'surgeon', spy: 'agent', sniper: 'phantom' };
+    const BR = { guardian: ['sentinel', 'duelist'], bounty: ['manhunter', 'gunfighter'], commando: ['vanguard', 'heavy'], surgeon: ['lifeline', 'toxin'], agent: ['infiltrator', 'saboteur'], phantom: ['wraith', 'longshot'] };
+    for (const [cls, adv] of Object.entries(ADV)) { looks.push(['player', { cls, adv }, adv]); for (const b of BR[adv]) looks.push(['player', { cls, adv, branch: b }, b]); }
+    for (const t of ['lancer', 'officer', 'merchant', 'prisoner', 'informant']) looks.push([t, {}, t]);
+    for (let role = 0; role <= 5; role++) for (const k of [0, 1]) looks.push(['civilian', { role, salt: k }, `civ${role}${k ? 'b' : ''}`]);
+    // a man and a woman of each: search variants until the pack body comes out that sex
+    const cast = [];
+    for (const [type, o, label] of looks) for (const sex of ['m', 'f']) {
+      for (let v = 1 + (o.salt || 0) * 50; v < 400; v++) { const h = new AssetHumanoid(type, { variant: v, color: '#3fb6ff', colorIdx: 0, ...o }); if (h.sex === sex) { cast.push({ h, label: label + ' ' + sex }); break; } }
+    }
+    const cam = new THREE.PerspectiveCamera(13, innerWidth / innerHeight, 0.1, 100);
+    let shown = [];
+    const PER = 4;
+    // left to right on screen in cast order (the camera looks along +Z, so screen-right is -X)
+    const show = (page, ang = 0) => {
+      for (const c of shown) scene.remove(c.h.root);
+      shown = cast.slice(page * PER, page * PER + PER);
+      shown.forEach((c, i) => { c.h.root.position.set(((PER - 1) / 2 - i) * 0.75, 0, 0); c.h.root.rotation.y = ang; scene.add(c.h.root); });
+      cam.position.set(0, 1.6, -3.4); cam.lookAt(0, 1.53, 0);
+      return shown.map((c) => c.label);
+    };
+    window.__heads = { show, pages: Math.ceil(cast.length / PER), labels: cast.map((c) => c.label) };
+    show(0);
+    window.__viewer = { scene, Assets };
+    let last = performance.now();
+    const loop = () => { requestAnimationFrame(loop); const now = performance.now(); const dt = Math.min(0.1, (now - last) / 1000); last = now; for (const c of shown) c.h.update(dt, { speed: 0 }, now / 1000); renderer.render(scene, cam); };
+    loop();
+    return;
+  }
   if (set === 'bike') {
     // speeder bikes in a few paints, one with a rider: &ang=0.8&dist=6
     const { makeSpeeder } = await import('./render/models.js');
