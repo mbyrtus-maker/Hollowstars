@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { clamp, lerp, mulberry32 } from '../../shared/math.js';
 import { textures, repeated } from './textures.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const texCache = new Map();
 function texSet(name, rep) { const k = name + rep; if (!texCache.has(k)) texCache.set(k, repeated(textures()[name], rep)); return texCache.get(k); }
@@ -251,30 +252,77 @@ export class Critter {
 
 // ------------------------------------------------------------------ speeder
 
+// A hover bike: a long keel with a sharp nose, an upright cowl and bars, a saddle, one big rear
+// thruster with two small ones, and a repulsor pod under each end. Faced, chunky and flat-shaded to sit
+// with the pack ships and buildings. Faces -Z; the rider sits upright with feet on the footboards.
+// `color` paints the panels, `vane` the fins and stripes.
 export function makeSpeeder(color = 0x8a7a64, vane = 0x9a3a2c) {
   const g = new THREE.Group();
-  const hull = mat(color, { metal: 0.35, rough: 0.55 }), dark = mat(0x2e2c30, { metal: 0.5 }), red = mat(vane);
+  const paint = mat(color, { metal: 0.35, rough: 0.5 }), accent = mat(vane, { metal: 0.2, rough: 0.6 });
+  const dark = mat(0x2c2d33, { metal: 0.55, rough: 0.5 }), steel = mat(0x9a9ca4, { metal: 0.7, rough: 0.35 }), seat = mat(0x3a2a22, { rough: 0.85 });
   const body = new THREE.Group();
-  body.position.y = 0;
   g.add(body);
-  body.add(mesh(boxG(0.7, 0.32, 2.3), hull, 0, 0.0, 0.1));
-  body.add(mesh(boxG(0.55, 0.25, 1.0), hull, 0, -0.02, -1.4).rotateX(0.12));
-  body.add(mesh(boxG(0.5, 0.18, 0.7), dark, 0, 0.22, 0.5)); // seat
-  body.add(mesh(boxG(0.9, 0.06, 0.08), dark, 0, 0.38, -0.35)); // bars
-  body.add(mesh(boxG(0.08, 0.3, 0.08), dark, 0, 0.22, -0.4));
-  body.add(mesh(boxG(1.4, 0.06, 0.5), red, 0, 0.0, -0.9)); // vanes
-  for (const x of [-0.5, 0.5]) {
-    body.add(mesh(cylG(0.17, 0.2, 1.1, 8), dark, x, -0.05, 0.75).rotateX(Math.PI / 2));
-    const glow = mesh(new THREE.CircleGeometry(0.15, 10), glowMat(0x6ad8ff, 3), x, -0.05, 1.31, false);
-    body.add(glow);
+  const add = (geo, m, x, y, z, rx = 0, ry = 0, rz = 0, shadow = true) => { const o = mesh(geo, m, x, y, z, shadow); o.rotation.set(rx, ry, rz); body.add(o); return o; };
+  const rb = (w, h, d, r = 0.06) => new RoundedBoxGeometry(w, h, d, 1, r);
+  // keel and nose
+  add(rb(0.62, 0.32, 2.3, 0.1), paint, 0, 0.04, 0.1);
+  const nose = new THREE.CylinderGeometry(0.04, 0.33, 1.0, 6, 1);
+  nose.rotateX(-Math.PI / 2); nose.scale(1, 0.62, 1);
+  add(nose, paint, 0, 0.06, -1.5);
+  add(rb(0.66, 0.08, 2.0, 0.03), dark, 0, -0.13, 0.15); // belly plate
+  for (const sx of [-1, 1]) add(boxG(0.02, 0.06, 1.7), accent, sx * 0.315, 0.1, 0.0); // side stripes
+  // cowl, dash and windscreen
+  add(rb(0.44, 0.36, 0.62, 0.08), paint, 0, 0.36, -0.62, -0.62);
+  add(rb(0.34, 0.07, 0.26, 0.03), dark, 0, 0.66, -0.36, -0.4);
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.26), new THREE.MeshStandardMaterial({ color: 0x9fd4e8, transparent: true, opacity: 0.4, metalness: 0.9, roughness: 0.05, side: THREE.DoubleSide }));
+  glass.position.set(0, 0.8, -0.56); glass.rotation.x = -0.85;
+  body.add(glass);
+  add(boxG(0.16, 0.04, 0.03), glowMat(0x6ad8ff, 1.6), 0, 0.71, -0.24, -0.4, 0, 0, false); // readout
+  // steering column, bars and grips
+  add(cylG(0.035, 0.035, 0.5, 6), steel, 0, 0.82, -0.2, 0.5);
+  add(boxG(0.52, 0.045, 0.05), steel, 0, 1.04, -0.08);
+  for (const sx of [-1, 1]) add(cylG(0.032, 0.032, 0.13, 8), dark, sx * 0.2, 1.04, -0.08, 0, 0, Math.PI / 2);
+  // fuel spine and saddle
+  add(rb(0.42, 0.22, 0.5, 0.07), paint, 0, 0.42, -0.05);
+  add(boxG(0.06, 0.02, 0.4), accent, 0, 0.535, -0.05);
+  add(rb(0.48, 0.3, 0.8, 0.08), paint, 0, 0.34, 0.42);
+  add(rb(0.38, 0.12, 0.66, 0.05), seat, 0, 0.55, 0.36);
+  add(rb(0.38, 0.16, 0.08, 0.03), seat, 0, 0.66, 0.68, 0.25); // back rest lip
+  // footboards
+  for (const sx of [-1, 1]) add(boxG(0.2, 0.04, 0.5), dark, sx * 0.38, 0.18, -0.08);
+  // main thruster and two small ones, each with a glowing exhaust
+  const engines = [];
+  const thruster = (x, y, z, r, len) => {
+    add(cylG(r * 0.9, r, len, 10), dark, x, y, z, Math.PI / 2);
+    add(new THREE.TorusGeometry(r * 0.92, r * 0.16, 5, 12), steel, x, y, z + len / 2);
+    const e = add(new THREE.CircleGeometry(r * 0.78, 12), glowMat(0x6ad8ff, 2.6), x, y, z + len / 2 + 0.02, 0, 0, 0, false);
+    engines.push(e);
+  };
+  thruster(0, 0.24, 1.06, 0.26, 0.8);
+  for (const sx of [-1, 1]) thruster(sx * 0.37, 0.05, 1.0, 0.1, 0.42);
+  // fins
+  for (const sx of [-1, 1]) add(boxG(0.03, 0.2, 0.4), accent, sx * 0.2, 0.46, 1.12, 0.35, 0, sx * -0.5);
+  add(boxG(0.03, 0.22, 0.36), accent, 0, 0.52, 1.16, 0.4);
+  // repulsor pods under the nose and the tail
+  for (const [z, r] of [[-1.0, 0.24], [0.75, 0.28]]) {
+    add(cylG(r, r * 1.1, 0.12, 10), dark, 0, -0.14, z);
+    add(new THREE.CircleGeometry(r * 0.75, 12), glowMat(0x6ad8ff, 1.4), 0, -0.205, z, Math.PI / 2, 0, 0, false);
   }
-  const under = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 2.2), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x55c8ff).multiplyScalar(1.4), transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-  under.rotation.x = Math.PI / 2;
-  under.position.y = -0.18;
+  // headlight and brake lights
+  add(boxG(0.16, 0.05, 0.05), glowMat(0xffe0a0, 2.5), 0, 0.14, -1.93, 0, 0, 0, false);
+  const brake = [];
+  for (const sx of [-1, 1]) { const b = add(boxG(0.07, 0.05, 0.03), glowMat(0xff2020, 0.6), sx * 0.17, 0.42, 0.83, 0, 0, 0, false); brake.push(b); }
+  // the hover glow on the ground: two soft pools under the pods (one mesh, so it can be faded as one)
+  const pool = mergeGeometries([new THREE.CircleGeometry(0.45, 16).translate(0, 1.0, 0), new THREE.CircleGeometry(0.5, 16).translate(0, -0.75, 0)]);
+  const under = new THREE.Mesh(pool, new THREE.MeshBasicMaterial({ color: new THREE.Color(0x55c8ff).multiplyScalar(1.4), transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  under.rotation.x = -Math.PI / 2;
+  under.position.y = -0.24;
   body.add(under);
   g.userData.body = body;
   g.userData.under = under;
-  g.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+  g.userData.brake = brake;
+  g.userData.engines = engines;
+  g.userData.seats = [[0, 0.6, 0]];
   return g;
 }
 

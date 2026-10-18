@@ -254,7 +254,7 @@ This ties all the systems together: missions weaken the regime, ownership create
    - Set dressing is authored in `shared/dressing.js` and placed only where it can't block a patrol, worker, traffic route or point of interest.
    - The Wayfarer (Ultimate Spaceships "Challenger"), Khet's outer houses (recoloured Ultimate Textured Buildings) and Rime Hold (KayKit base modules) are now pack models; `shared/packs.js` keeps their collision as boxes so the simulation is unchanged.
    - Next steps:
-     - Speeder bikes: no free pack has a hover bike in this style; keep the procedural bike or commission one.
+     - Speeder bikes: no free pack has a hover bike in this style, so the procedural bike was rebuilt to match the packs (faceted keel and nose, upright cowl and bars, saddle, triple thrusters, repulsor pods). A commissioned model could replace it later.
      - Thessaly's stilt huts: Quaternius Medieval Village MegaKit (timber walls, floors, roofs) once it's in.
      - Add per-planet colonist and droid variety.
      - Stream assets per planet instead of loading everything up front.

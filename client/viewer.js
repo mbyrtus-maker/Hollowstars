@@ -21,6 +21,32 @@ export async function runViewer(canvas, params) {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 30), new THREE.MeshStandardMaterial({ color: 0x8a6448, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const set = (params.get('set') || 'crew');
+  if (set === 'bike') {
+    // speeder bikes in a few paints, one with a rider: &ang=0.8&dist=6
+    const { makeSpeeder } = await import('./render/models.js');
+    const paints = [[0x3fb6ff, 0x2a2c32], [0xb8a27e, 0xa04a3a], [0x7a8e9a, 0xc98d2e], [0xd8d2c4, 0x3a4a6a]];
+    const hover = +(params.get('hover') || 0.62);
+    let rider = null;
+    paints.forEach(([c, v], i) => {
+      const b = makeSpeeder(c, v);
+      b.position.set((i - 1.5) * 2.2, hover, 0);
+      b.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      scene.add(b);
+      if (i === 1) {
+        rider = new AssetHumanoid('player', { variant: 5, color: '#ff7a3a', colorIdx: 1, cls: 'soldier' });
+        rider.root.position.set(b.position.x, hover + 0.18, 0);
+        scene.add(rider.root);
+      }
+    });
+    const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+    const a = +(params.get('ang') || 0.8), r = +(params.get('dist') || 7.5), fx = +(params.get('fx') || 0);
+    cam.position.set(fx + Math.sin(a) * r, +(params.get('h') || 2.2), -Math.cos(a) * r); cam.lookAt(fx, 0.7, 0);
+    window.__viewer = { scene, Assets };
+    let last = performance.now();
+    const loop = () => { requestAnimationFrame(loop); const now = performance.now(); const dt = Math.min(0.1, (now - last) / 1000); last = now; rider.update(dt, { driving: true }, now / 1000); renderer.render(scene, cam); };
+    loop();
+    return;
+  }
   if (set === 'one') {
     // one model at a set length, orbited: &name=...&len=12&ang=0.8&h=4
     const m = Assets.instance(params.get('name'));

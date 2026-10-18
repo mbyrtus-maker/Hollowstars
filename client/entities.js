@@ -376,7 +376,7 @@ function makeTraffic(kind, seed, planet) {
   model.add(vehicle);
   model.userData.vehicle = vehicle;
   const riders = [];
-  const seats = kind === 1 ? [[0, 0.31, 0.45]] : vehicle.userData.seats;
+  const seats = vehicle.userData.seats;
   seats.forEach(([x, y, z], i) => {
     if (i > 0 && seed % 5 > 1) return; // passenger sometimes
     const human = Person('civilian', { variant: seed * 3 + i * 17 + 5 });
