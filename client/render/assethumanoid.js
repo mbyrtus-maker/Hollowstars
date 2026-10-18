@@ -130,7 +130,9 @@ export class AssetHumanoid extends Humanoid {
     this.pelvis = hold('pelvis', 'pelvis', pel, undefined, new THREE.Vector3(1.15, 1, 1.3));
     const spineAt = new THREE.Vector3(0, pel.y + 0.08, pel.z * 0.5);
     this.spine = hold('spine', 'spine_02', spineAt, undefined, new THREE.Vector3(shoulderX / 0.185 * 1.06, (neck.y - spineAt.y) / 0.56, 1.32));
-    this.head = hold('head', 'Head', new THREE.Vector3(0, head.y + 0.1 - 0.14, head.z + 0.012), undefined, new THREE.Vector3(1.06, 1.04, 1.08));
+    // the procedural head's landmarks (eyes at 0.155 up and 0.1 forward of this bone) lined up with the
+    // pack head's, so hats, helmets, visors and masks sit where they were designed to
+    this.head = hold('head', 'Head', new THREE.Vector3(0, head.y + 0.002, head.z + 0.042), undefined, new THREE.Vector3(1.06, 1.04, 1.08));
     this.shL = hold('shL', 'upperarm_l', W('upperarm_l'), limbQ('upperarm_l', 'lowerarm_l'), new THREE.Vector3(1.18, len('upperarm_l', 'lowerarm_l') / 0.29, 1.18));
     this.shR = hold('shR', 'upperarm_r', W('upperarm_r'), limbQ('upperarm_r', 'lowerarm_r'), new THREE.Vector3(1.18, len('upperarm_r', 'lowerarm_r') / 0.29, 1.18));
     this.elL = hold('elL', 'lowerarm_l', W('lowerarm_l'), limbQ('lowerarm_l', 'hand_l'), new THREE.Vector3(1.12, len('lowerarm_l', 'hand_l') / 0.27, 1.12));
@@ -205,10 +207,10 @@ export class AssetHumanoid extends Humanoid {
         }
         geo = mergeGeometries([outer, inner]);
         geo.computeVertexNormals();
-        y += 0.04; z += 0.03; rx = -0.12;
+        rx = -0.12;
       } else {
-        geo = geo.clone().scale(1.14, 1.12, 1.14);
-        y += 0.05; z += 0.012; rx += -0.12;
+        // caps and helmets: a touch roomier, for the pack hair underneath
+        geo = geo.clone().scale(1.05, 1.03, 1.05);
       }
     }
     super.part(bone, geo, mat, color, x, y, z, rx, ry, rz);
@@ -279,8 +281,10 @@ export class AssetHumanoid extends Humanoid {
   turnBone(name, axis, angle) {
     const b = this.ab[name];
     if (!b || !angle) return;
-    // remember the clip-free pose: bones a clip doesn't animate would otherwise keep every turn
-    if (!this.touched.has(b)) this.touched.set(b, this.rest.get(b) || b.quaternion.clone());
+    // remember the pose this turn starts from, to put back at the start of the next frame. It has to
+    // be the value the mixer last wrote (not the rest pose): the mixer only writes a bone when its
+    // animated value changes, so a finished clip (a body lying dead) would never undo a reset.
+    if (!this.touched.has(b)) this.touched.set(b, b.quaternion.clone());
     b.parent.getWorldQuaternion(q1);
     this.root.getWorldQuaternion(q2);
     v2.copy(axis).applyQuaternion(q2);                 // axis in world space
@@ -293,7 +297,7 @@ export class AssetHumanoid extends Humanoid {
   // hand is placed at the grip in front of the shoulder and turned so the barrel runs along the aim,
   // then the left hand reaches for the fore-end. Both arms are solved with two-bone IK.
   setWorldQuat(b, q) {
-    if (!this.touched.has(b)) this.touched.set(b, this.rest.get(b) || b.quaternion.clone());
+    if (!this.touched.has(b)) this.touched.set(b, b.quaternion.clone());
     b.parent.getWorldQuaternion(q1);
     b.quaternion.copy(q1.invert().multiply(q));
     b.updateMatrixWorld(true);
@@ -353,6 +357,7 @@ export class AssetHumanoid extends Humanoid {
 
   update(dt, s, t) {
     for (const [b, q] of this.touched) b.quaternion.copy(q);
+    this.touched.clear();
     if (s.drawn !== undefined && s.drawn !== this.drawn) this.setDrawn(s.drawn);
     this.drawT += dt;
     this.parryT += dt;

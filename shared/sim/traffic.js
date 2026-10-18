@@ -11,6 +11,7 @@ const TOWN_SPEED = { bike: 10, car: 8.5, hauler: 7 };
 const HOVER = { bike: 0.7, car: 0.75, hauler: 0.85 };
 const HP = { bike: 60, car: 120, hauler: 170 };
 const RADIUS = { bike: 0.9, car: 1.4, hauler: 1.7 };
+const LANE = 1.7; // metres either side of a two-way road's centre line
 
 function prep(r) {
   const pts = r.loop ? [...r.pts, r.pts[0]] : r.pts;
@@ -61,16 +62,26 @@ export function updateTraffic(game, e, dt) {
   vt *= 1 - Math.min(0.6, turn * 0.55);
   // brake for anything in the lane ahead
   const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
-  let blockedBy = null;
+  let blockedBy = null, stoppedBy = null;
+  const squeezing = game.time < (e.squeezeUntil || 0);
   for (const o of game.nearby(e.x, e.z, 13)) {
     if (o === e || o.dead || o.aboard || o.kind === K.CAMERA || o.kind === K.PICKUP || o.kind === K.GRENADE) continue;
+    // other traffic only holds us up when it's going our way: oncoming and crossing rides keep to their own lane
+    if (o.kind === K.TRAFFIC && Math.abs(angleDiff(o.yaw, e.yaw)) > 1.2) continue;
+    // after a long wait, a driver edges around whatever is parked or standing in the way (not players)
+    if (squeezing && o.kind !== K.PLAYER) continue;
     const rx = o.x - e.x, rz = o.z - e.z;
     const along = rx * fx + rz * fz, lat = Math.abs(rx * fz - rz * fx);
-    if (along <= 0.5 || along > 12 || lat > (o.kind === K.TRAFFIC ? 2.6 : 2.0) + e.r * 0.5) continue;
-    if (o.kind === K.TRAFFIC && Math.abs(angleDiff(o.yaw, e.yaw)) > 2.4 && along > 6) continue; // oncoming on a two-way road
-    vt = Math.min(vt, Math.max(0, (along - 4.5) * 1.6));
+    if (along <= 0.5 || along > 12 || lat > (o.kind === K.TRAFFIC ? 2.2 : 2.0) + e.r * 0.5) continue;
+    const cap = Math.max(0, (along - 4.5) * 1.6);
+    if (cap < vt) { vt = cap; stoppedBy = o; }
     if (o.kind === K.PLAYER || o.kind === K.CIVILIAN) blockedBy = o;
   }
+  // stuck behind the same thing for a while (a stalled ride, a parked speeder, a loiterer): go around it
+  if (stoppedBy && stoppedBy.kind !== K.PLAYER && e.v < 0.4) {
+    e.stuckT = (e.stuckT || 0) + dt;
+    if (e.stuckT > 5) { e.stuckT = 0; e.squeezeUntil = game.time + 4; }
+  } else e.stuckT = 0;
   if (vt < e.v) e.flags |= F.AIM; // brake lights
   e.v += clamp(vt - e.v, -14 * dt, 4.5 * dt);
   if (blockedBy && e.v < 0.5) {
@@ -84,7 +95,11 @@ export function updateTraffic(game, e, dt) {
   }
   const p = at(r, e.s);
   const px = e.x, pz = e.z;
-  e.x = p.x; e.z = p.z;
+  // two-way roads have a lane each way: keep right of the centre line so rides can pass
+  const lane = r.loop ? 0 : LANE * e.dir;
+  e.lane = (e.lane ?? lane) + clamp(lane - (e.lane ?? lane), -1.5 * dt, 1.5 * dt);
+  const ry = p.yaw; // the route's own heading; right of it is (cos, -sin)
+  e.x = p.x + Math.cos(ry) * e.lane; e.z = p.z - Math.sin(ry) * e.lane;
   const gy = groundAt(game.world, e.x, e.z, e.y + 3) + HOVER[e.vk];
   e.y += (gy - e.y) * Math.min(1, dt * 8);
   const heading = e.dir > 0 ? p.yaw : wrapAngle(p.yaw + Math.PI);
