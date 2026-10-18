@@ -115,7 +115,7 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
   run(g, 0.5);
   check(e3.dead && p.knives === 2, 'spy: a thrown knife silently kills an unaware guard');
   // Cloak
-  place(g, p, 140 + S, 0); p.crouch = false;
+  place(g, p, g.world.pois.courtyard.x, g.world.pois.courtyard.z); p.crouch = false;
   g.handle('p0', { t: 'ab', k: 'x' });
   run(g, 0.2);
   check(p.visibility < 0.1, `spy: Cloak makes you nearly invisible (${p.visibility.toFixed(2)})`);
@@ -148,7 +148,7 @@ for (const [cls, weapon] of [['warden', 'blade'], ['gunslinger', 'pistols'], ['s
 {
   const { g, ps: [p] } = setup('soldier');
   g.camerasOn = false; g.camOffUntil = 1e9;
-  place(g, p, 140 + S, 0); p.crouch = false;
+  place(g, p, g.world.pois.courtyard.x, g.world.pois.courtyard.z); p.crouch = false;
   for (let i = 0; i < 300 && !g.alarm.active; i++) g.tick(0.05);
   check(g.alarm.active, 'alarm: raised after being spotted in the courtyard');
   run(g, 0.5);

@@ -170,7 +170,7 @@ const L10 = 2800;
   // Agent: suppressed pistol, decoy, quick slicing
   const { g, p } = setup('spy', L10, 'agent');
   check(p.weapon === 'silenced', 'agent: carries a suppressed pistol');
-  place(g, p, 100 + S, 0); p.yaw = -Math.PI / 2; p.pitch = 0;
+  place(g, p, 76 + S, 0); p.yaw = -Math.PI / 2; p.pitch = 0; // out on the road, clear of the gate floodlights
   const e = guards(g).find((q) => q.ai.name === 'court'); calm(e); e.ai.wait = 0;
   g.rebuildSpatial();
   ab(g, p, 'f');

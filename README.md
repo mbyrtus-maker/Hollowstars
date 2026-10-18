@@ -82,7 +82,7 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   - Trade at each town's **exchange**. Make **parts** (alloy plate, power cells, armorweave, circuit boards) at the **workshop**.
   - Spend parts and credits on three tiers of upgrades for what you own: your **weapon** (+damage), **armor** (+health), **speeder tune** (+speed, +cannons) and your **Wayfarer berth** (+cargo, faster jumps). Your pack and gear are saved with your callsign.
 - **Three planets and a ship.** The crew starts with the *Wayfarer*, parked at each world's landing pad. Walk up the ramp to board, then use the nav console to pick a destination on the star map. It launches once the whole crew is aboard, and the crew stays aboard until it has touched down at the other end.
-  - **Dusk Varo:** desert, the township of Khet, Garrison Seven.
+  - **Dusk Varo:** desert, the township of Khet, Garrison Seven (a 120 x 110 m compound: lit core yards, dark container rows, a motor pool and sandbag lines around the edge).
   - **Thessaly Mire:** a drowned forest with solid trees to hide behind, the stilt village of Lowmarsh, and Harvester Station Kappa.
   - **Korrun Deep:** an ice shelf in falling snow, the outpost of Rime Hold, ice spires, and Cryo-Vault Sigma.
 - **Five multi-part missions.**

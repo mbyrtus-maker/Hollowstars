@@ -42,7 +42,7 @@ function use(g, p, holdSeconds = 0) {
   const c = use(g, p);
   run(g, 0.2);
   check(g.party.items.cellcode, `rescue: Oru hands over the cell code (${c && c.id})`);
-  place(g, p, 150 + S, -11); run(g, 0.3);
+  place(g, p, W.doors.cellblock.x, W.doors.cellblock.z + 3); run(g, 0.3);
   check(g.mission.done[1], 'rescue: infiltrating the garrison completes step 2');
   place(g, p, W.doors.cellblock.x, W.doors.cellblock.z + 1.4); face(p, W.doors.cellblock.x, W.doors.cellblock.z);
   use(g, p); run(g, 0.2);
@@ -52,11 +52,12 @@ function use(g, p, holdSeconds = 0) {
   const pr = g.ents.get(g.prisonerId);
   check(W.doors.cell.open && pr.ai.state === 'follow', 'rescue: cutting the lock frees Ilsa, who follows');
   // Walk toward the LZ in steps; she should keep up
-  const path = [[151 + S, -11], [145 + S, -4], [135 + S, 0], [121 + S, 0], [292, 14], [272, 34], [254, 52], [240, 62], [238, 64]];
+  const C = W.pois.courtyard, cd = W.doors.cellblock;
+  const path = [[cd.x, cd.z + 3], [C.x + 4, C.z - 4], [C.x, C.z], [W.pois.gate.x + 7, 0], [W.pois.gate.x - 5, 6], [272, 34], [254, 52], [240, 62], [238, 64]];
   let status = 'active';
   let sawHint = false;
   for (const [x, z] of path) {
-    if (!W.doors.gate.open && x < 140 + S) {
+    if (!W.doors.gate.open && x < W.pois.gate.x + 6) {
       const view = g.globalState().m.steps[g.mission.step][0];
       sawHint = sawHint || /sealed/.test(view);
       place(g, p, W.pois.gatePanel.x + 1, W.pois.gatePanel.z); face(p, W.pois.gatePanel.x, W.pois.gatePanel.z); use(g, p, 1.5); run(g, 0.2);
@@ -113,14 +114,17 @@ function use(g, p, holdSeconds = 0) {
   check(g.mission && g.mission.id === 'sabotage', 'sabotage: accepted');
   p.grenades = 6;
   // Throw a charge at the mast
-  place(g, p, 196 + S, -6); face(p, 204 + S, -6);
+  const mast = W.destructibles.mast;
+  place(g, p, mast.x - 8, mast.z); face(p, mast.x, mast.z);
   g.handle('p1', { t: 'gren', o: [p.x, p.y + 1.5, p.z], d: [1, 0.05, 0] });
   run(g, 3);
   g.damageDestructible(W.destructibles.mast, 999, p);
   run(g, 0.5);
   check(W.destructibles.mast.destroyed, 'sabotage: comms mast toppled');
-  place(g, p, 190 + S, 10); face(p, 202 + S, 10);
-  g.handle('p1', { t: 'gren', o: [p.x, p.y + 1.5, p.z], d: [0.97, 0.15, 0] });
+  // a long, flat lob down the gap between the tank rows (the depot stands well clear of the east wall now)
+  const dep = W.pois.depot;
+  place(g, p, dep.x - 32, dep.z); face(p, dep.x, dep.z);
+  g.handle('p1', { t: 'gren', o: [p.x, p.y + 1.5, p.z], d: [0.97, 0.24, 0] });
   run(g, 3.5);
   const tanks = [0, 1, 2, 3].filter((i) => W.destructibles['tank' + i].destroyed).length;
   check(tanks >= 2, `sabotage: one charge plus chain reaction burned ${tanks}/4 tanks`);
@@ -138,10 +142,11 @@ function use(g, p, holdSeconds = 0) {
 // ---------------------------------------------------------------- stealth sanity
 {
   const { g, p } = setup();
-  place(g, p, 224 + S, -22); p.crouch = true;
+  const W = g.world;
+  place(g, p, W.pois.culvert.x + 7, W.pois.culvert.z - 2); p.crouch = true;
   run(g, 5);
   check(!g.alarm.active, `stealth: crouching in the shadows outside the culvert stays unseen (vis ${p.visibility.toFixed(2)})`);
-  place(g, p, 140 + S, 0); p.crouch = false;
+  place(g, p, W.pois.courtyard.x, W.pois.courtyard.z); p.crouch = false;
   run(g, 8);
   check(g.alarm.active, 'stealth: standing in the floodlit courtyard gets you spotted and the alarm raised');
 }

@@ -32,10 +32,10 @@ const ZONES_DUSK = [
   { name: 'Ochre Cut', x: -58, z: -128, r: 20, f: 16, h: 8 },
   { name: 'Skitter Lodge', x: -120, z: 178, r: 16, f: 14, h: 7 },
   { name: 'Khet Spaceport', x: -250, z: 126, r: 32, f: 18, h: 6 },
-  { name: 'Garrison Seven', x: 170 + DUSK_SHIFT, z: 0, r: 70, f: 22, h: 10 },
+  { name: 'Garrison Seven', x: 170 + DUSK_SHIFT, z: 0, r: 92, f: 22, h: 10 },
   { name: 'Ridge LZ', x: 238, z: 66, r: 14, f: 14, h: 11 },
 ];
-const ROAD_DUSK = [[-46, 36], [10, 26], [70, 18], [130, 13], [190, 8], [250, 4], [300, 1], [316, 0]];
+const ROAD_DUSK = [[-46, 36], [10, 26], [70, 18], [130, 13], [190, 8], [250, 4], [284, 1], [297, 0]];
 
 function rawDusk(x, z) {
   let h = 7 + fbm(x / 140, z / 140, 4, 3) * 9;
@@ -453,10 +453,27 @@ function buildLayout(W) {
   ];
   box(W, -108.5, gT, 37.5, 0.5, 1.2, 16, MAT.METAL_DARK);
 
-  // ---------- Garrison Seven (authored at x 125..215, then shifted east by DUSK_SHIFT)
+  // ---------- Garrison Seven (authored around x 170, z 0, then shifted east by DUSK_SHIFT)
+  // A big compound: the core buildings stand apart with floodlit yards between them, and the ring
+  // between them and the walls holds container rows, a motor pool and unlit corners, so a careful
+  // crew has routes in that no guard or camera covers.
   const gMark = markWorld(W);
   const gG = 10;
-  const X0 = 125, X1 = 215, Z0 = -35, Z1 = 35, WH = 6.2, WT = 1.2;
+  const X0 = 110, X1 = 230, Z0 = -55, Z1 = 55, WH = 6.2, WT = 1.2;
+  // The core was first laid out inside a 90 x 70 m wall. Each building keeps its own shape and is
+  // carried out with the walls (mp), so the gaps between them grow with the compound.
+  const KX = (X1 - X0) / 90, KZ = (Z1 - Z0) / 70;
+  const M = (x, z) => [170 + (x - 170) * KX, z * KZ];
+  const UNITS = { cmd: [174, 198, -30, -12], cel: [140, 162, -30, -14], bar: [140, 162, 16, 30], sec: [172, 184, 14, 24], depot: [193, 208, 1, 20], mast: [202, 206, -8, -4], pad: [151.5, 164.5, -3.5, 9.5], mess: [170.4, 178.6, 3.3, 4.7] };
+  const delta = {};
+  for (const [k, [a, b, c, d]] of Object.entries(UNITS)) { const [mx, mz] = M((a + b) / 2, (c + d) / 2); delta[k] = [mx - (a + b) / 2, mz - (c + d) / 2]; }
+  const unitAt = (x, z) => {
+    let best = null, bd = 4;
+    for (const [k, [a, b, c, d]] of Object.entries(UNITS)) { const dd = Math.hypot(Math.max(a - x, 0, x - b), Math.max(c - z, 0, z - d)); if (dd <= bd) { bd = dd; best = k; } }
+    return best;
+  };
+  const mp = (x, z) => { const u = unitAt(x, z); return u ? [x + delta[u][0], z + delta[u][1]] : M(x, z); };
+  const unit = (k, build) => { const m = markWorld(W); build(); shiftWorld(W, m, delta[k][0], delta[k][1]); };
   W.regions.garrison = { minX: X0, maxX: X1, minZ: Z0, maxZ: Z1 };
   // floor slab
   box(W, (X0 + X1) / 2, gG - 0.5, 0, X1 - X0, 0.52, Z1 - Z0, MAT.CONCRETE, { solid: true });
@@ -469,12 +486,13 @@ function buildLayout(W) {
   addBox(W, X0 - 0.3, gG + 5, -3.5, X0 + WT + 0.3, gG + WH + 1.2, 3.5, MAT.RED);
   addDoor(W, 'gate', { minX: X0 + 0.2, maxX: X0 + WT - 0.2, minZ: -3.5, maxZ: 3.5, x: X0 + 0.6, z: 0, y0: gG, dh: 5, axis: 'z' }, null, 'Main Gate', { open: true });
   W.pois.gate = { x: X0 - 3, z: 0 };
-  // east wall with a drainage culvert (z in [-21.1, -18.9], height 1.25) — crouch to pass
-  addBox(W, X1 - WT, gG, Z0, X1, gG + WH, -21.1, MAT.METAL);
-  addBox(W, X1 - WT, gG + 1.25, -21.1, X1, gG + WH, -18.9, MAT.METAL);
-  addBox(W, X1 - WT, gG, -18.9, X1, gG + WH, Z1, MAT.METAL);
-  W.pois.culvert = { x: X1 + 2, z: -20 };
-  W.decor.push({ type: 'culvert', x: X1 - WT / 2, y: gG, z: -20 });
+  // east wall with a drainage culvert (height 1.25) — crouch to pass
+  const ductZ = Math.round(-20 * KZ * 10) / 10;
+  addBox(W, X1 - WT, gG, Z0, X1, gG + WH, ductZ - 1.1, MAT.METAL);
+  addBox(W, X1 - WT, gG + 1.25, ductZ - 1.1, X1, gG + WH, ductZ + 1.1, MAT.METAL);
+  addBox(W, X1 - WT, gG, ductZ + 1.1, X1, gG + WH, Z1, MAT.METAL);
+  W.pois.culvert = { x: X1 + 2, z: ductZ };
+  W.decor.push({ type: 'culvert', x: X1 - WT / 2, y: gG, z: ductZ });
   // watchtowers
   W.towers = [];
   for (const [tx, tz] of [[X0 + 3, Z0 + 3], [X1 - 3, Z0 + 3], [X0 + 3, Z1 - 3], [X1 - 3, Z1 - 3]]) {
@@ -485,98 +503,137 @@ function buildLayout(W) {
     W.towers.push({ x: tx, z: tz, y: gG + 8.4 });
   }
   // Command building (keycard), door on west facing courtyard
-  const cmd = building(W, 174, -30, 198, -12, gG, 7, MAT.METAL, 'w', { doorW: 2.6, doorH: 3, roofMat: MAT.METAL_DARK, wall: 0.7 });
-  addDoor(W, 'command', cmd, 'keycard', 'Command Center');
-  // interior dividing wall with vault door
-  addBox(W, 189, gG, -29.3, 189.6, gG + 7, -22.4, MAT.METAL_DARK);
-  addBox(W, 189, gG, -19.6, 189.6, gG + 7, -12.7, MAT.METAL_DARK);
-  addBox(W, 189, gG + 3, -22.4, 189.6, gG + 7, -19.6, MAT.METAL_DARK);
-  box(W, 194, gG, -21, 1.4, 1.3, 3, MAT.METAL_DARK); // vault console
-  box(W, 194.8, gG + 1.3, -21, 0.2, 1, 2.6, MAT.SCREEN, { solid: false });
-  W.pois.vault = { x: 192.6, z: -21 };
-  box(W, 180, gG, -26, 3, 0.9, 1.4, MAT.METAL_DARK); // desk
-  box(W, 184, gG, -16, 1.2, 2.2, 3, MAT.METAL_DARK); // locker
-  W.pois.cmdInside = { x: 180, z: -21 };
-  W.lamps.push({ x: 182, z: -21, y: gG + 6, r: 8, color: 'cool', inside: true });
+  unit('cmd', () => {
+    const cmd = building(W, 174, -30, 198, -12, gG, 7, MAT.METAL, 'w', { doorW: 2.6, doorH: 3, roofMat: MAT.METAL_DARK, wall: 0.7 });
+    addDoor(W, 'command', cmd, 'keycard', 'Command Center');
+    // interior dividing wall with vault door
+    addBox(W, 189, gG, -29.3, 189.6, gG + 7, -22.4, MAT.METAL_DARK);
+    addBox(W, 189, gG, -19.6, 189.6, gG + 7, -12.7, MAT.METAL_DARK);
+    addBox(W, 189, gG + 3, -22.4, 189.6, gG + 7, -19.6, MAT.METAL_DARK);
+    box(W, 194, gG, -21, 1.4, 1.3, 3, MAT.METAL_DARK); // vault console
+    box(W, 194.8, gG + 1.3, -21, 0.2, 1, 2.6, MAT.SCREEN, { solid: false });
+    W.pois.vault = { x: 192.6, z: -21 };
+    box(W, 180, gG, -26, 3, 0.9, 1.4, MAT.METAL_DARK); // desk
+    box(W, 184, gG, -16, 1.2, 2.2, 3, MAT.METAL_DARK); // locker
+    W.pois.cmdInside = { x: 180, z: -21 };
+    W.lamps.push({ x: 182, z: -21, y: gG + 6, r: 8, color: 'cool', inside: true });
+    W.regions.command = { minX: 174.5, maxX: 197.5, minZ: -29.5, maxZ: -12.5 };
+  });
   // Cell block (code door) — door on the south side (+z) facing courtyard
-  const cel = building(W, 140, -30, 162, -14, gG, 5, MAT.METAL, 's', { doorW: 2.6, doorH: 2.8, roofMat: MAT.METAL_DARK });
-  addDoor(W, 'cellblock', cel, 'cellcode', 'Detention Block');
-  // three cells along the north wall
-  for (let i = 0; i < 3; i++) {
-    const x0 = 141 + i * 6.6, x1 = x0 + 6.0;
-    addBox(W, x1, gG, -29.4, x1 + 0.4, gG + 5, -24, MAT.METAL_DARK);
-    addBox(W, x0 + 0.2, gG, -24.2, x0 + 2.2, gG + 3, -23.8, MAT.BARS);
-    addBox(W, x0 + 4.2, gG, -24.2, x1, gG + 3, -23.8, MAT.BARS);
-    if (i === 1) addDoor(W, 'cell', { minX: x0 + 2.2, maxX: x0 + 4.2, minZ: -24.2, maxZ: -23.8, x: x0 + 3.2, z: -24, y0: gG, dh: 3, axis: 'x' }, 'hold', 'Cell 2');
-    else addBox(W, x0 + 2.2, gG, -24.2, x0 + 4.2, gG + 3, -23.8, MAT.BARS);
-  }
-  W.pois.prisoner = { x: 151.2, z: -27 };
-  W.pois.cellInside = { x: 151, z: -19 };
-  W.lamps.push({ x: 151, z: -20, y: gG + 4.5, r: 7, color: 'cool', inside: true });
+  unit('cel', () => {
+    const cel = building(W, 140, -30, 162, -14, gG, 5, MAT.METAL, 's', { doorW: 2.6, doorH: 2.8, roofMat: MAT.METAL_DARK });
+    addDoor(W, 'cellblock', cel, 'cellcode', 'Detention Block');
+    // three cells along the north wall
+    for (let i = 0; i < 3; i++) {
+      const x0 = 141 + i * 6.6, x1 = x0 + 6.0;
+      addBox(W, x1, gG, -29.4, x1 + 0.4, gG + 5, -24, MAT.METAL_DARK);
+      addBox(W, x0 + 0.2, gG, -24.2, x0 + 2.2, gG + 3, -23.8, MAT.BARS);
+      addBox(W, x0 + 4.2, gG, -24.2, x1, gG + 3, -23.8, MAT.BARS);
+      if (i === 1) addDoor(W, 'cell', { minX: x0 + 2.2, maxX: x0 + 4.2, minZ: -24.2, maxZ: -23.8, x: x0 + 3.2, z: -24, y0: gG, dh: 3, axis: 'x' }, 'hold', 'Cell 2');
+      else addBox(W, x0 + 2.2, gG, -24.2, x0 + 4.2, gG + 3, -23.8, MAT.BARS);
+    }
+    W.pois.prisoner = { x: 151.2, z: -27 };
+    W.pois.cellInside = { x: 151, z: -19 };
+    W.lamps.push({ x: 151, z: -20, y: gG + 4.5, r: 7, color: 'cool', inside: true });
+  });
   // Barracks (open door, reinforcement spawn)
-  const bar = building(W, 140, 16, 162, 30, gG, 5, MAT.METAL, 'n', { doorW: 3, doorH: 3, roofMat: MAT.METAL_DARK });
-  W.pois.barracks = { x: 151, z: 23 };
-  W.pois.barracksDoor = { x: bar.x, z: bar.z - 2 };
-  for (let i = 0; i < 4; i++) box(W, 143.5 + i * 4.5, gG, 27.5, 2.2, 0.6, 3.2, MAT.METAL_DARK);
+  unit('bar', () => {
+    const bar = building(W, 140, 16, 162, 30, gG, 5, MAT.METAL, 'n', { doorW: 3, doorH: 3, roofMat: MAT.METAL_DARK });
+    W.pois.barracks = { x: 151, z: 23 };
+    W.pois.barracksDoor = { x: bar.x, z: bar.z - 2 };
+    for (let i = 0; i < 4; i++) box(W, 143.5 + i * 4.5, gG, 27.5, 2.2, 0.6, 3.2, MAT.METAL_DARK);
+  });
   // Security office (open door), alarm/camera terminal inside
-  const sec = building(W, 172, 14, 184, 24, gG, 4.2, MAT.METAL, 'w', { doorW: 2.4, doorH: 2.8, roofMat: MAT.METAL_DARK });
-  box(W, 181.8, gG, 19, 1.0, 1.2, 4, MAT.METAL_DARK);
-  box(W, 182.4, gG + 1.2, 19, 0.15, 1.2, 3.4, MAT.SCREEN, { solid: false });
-  W.pois.security = { x: 180.2, z: 19 };
-  W.pois.secDoor = { x: sec.x - 2, z: sec.z };
-  W.lamps.push({ x: 178, z: 19, y: gG + 3.8, r: 6, color: 'cool', inside: true });
+  unit('sec', () => {
+    const sec = building(W, 172, 14, 184, 24, gG, 4.2, MAT.METAL, 'w', { doorW: 2.4, doorH: 2.8, roofMat: MAT.METAL_DARK });
+    box(W, 181.8, gG, 19, 1.0, 1.2, 4, MAT.METAL_DARK);
+    box(W, 182.4, gG + 1.2, 19, 0.15, 1.2, 3.4, MAT.SCREEN, { solid: false });
+    W.pois.security = { x: 180.2, z: 19 };
+    W.pois.secDoor = { x: sec.x - 2, z: sec.z };
+    W.lamps.push({ x: 178, z: 19, y: gG + 3.8, r: 6, color: 'cool', inside: true });
+  });
   // Fuel depot with four tanks + low blast walls
   W.tanks = [];
-  const tankPos = [[198, 6], [206, 6], [198, 15], [206, 15]];
-  tankPos.forEach(([x, z], i) => {
-    const b = box(W, x, gG, z, 3.6, 5, 3.6, MAT.FUEL, { tag: 'tank' });
-    W.destructibles['tank' + i] = { id: 'tank' + i, kind: 'tank', x, z, y: gG, hp: 90, maxHp: 90, boxId: b.id, radius: 2.2, height: 5, destroyed: false };
+  unit('depot', () => {
+    const tankPos = [[198, 6], [206, 6], [198, 15], [206, 15]];
+    tankPos.forEach(([x, z], i) => {
+      const b = box(W, x, gG, z, 3.6, 5, 3.6, MAT.FUEL, { tag: 'tank' });
+      W.destructibles['tank' + i] = { id: 'tank' + i, kind: 'tank', x, z, y: gG, hp: 90, maxHp: 90, boxId: b.id, radius: 2.2, height: 5, destroyed: false };
+    });
+    addBox(W, 193, gG, 1, 193.6, gG + 1.4, 20, MAT.CONCRETE);
+    W.pois.depot = { x: 202, z: 10.5 };
   });
-  addBox(W, 193, gG, 1, 193.6, gG + 1.4, 20, MAT.CONCRETE);
-  W.pois.depot = { x: 202, z: 10.5 };
   // Comms mast
-  {
+  unit('mast', () => {
     const b = box(W, 204, gG, -6, 2.4, 22, 2.4, MAT.METAL_DARK, { tag: 'mast' });
     W.destructibles.mast = { id: 'mast', kind: 'mast', x: 204, z: -6, y: gG, hp: 320, maxHp: 320, boxId: b.id, radius: 1.6, height: 22, destroyed: false };
     W.pois.mast = { x: 204, z: -6 };
-  }
+  });
   // Dropship pad in the courtyard (cover)
-  box(W, 158, gG, 3, 13, 0.25, 13, MAT.CONCRETE);
-  box(W, 158, gG + 0.25, 3, 5, 3, 9, MAT.HULL);
-  box(W, 158, gG + 1.6, 3, 13, 0.5, 3, MAT.HULL);
-  W.decor.push({ type: 'dropship', x: 158, y: gG + 0.25, z: 3 });
+  unit('pad', () => {
+    box(W, 158, gG, 3, 13, 0.25, 13, MAT.CONCRETE);
+    box(W, 158, gG + 0.25, 3, 5, 3, 9, MAT.HULL);
+    box(W, 158, gG + 1.6, 3, 13, 0.5, 3, MAT.HULL);
+    W.decor.push({ type: 'dropship', x: 158, y: gG + 0.25, z: 3 });
+  });
   // Mess tables
-  for (const [x, z] of [[172, 4], [177, 4]]) box(W, x, gG, z, 3.2, 0.85, 1.4, MAT.METAL_DARK);
-  W.pois.mess = { x: 174.5, z: 6 };
+  unit('mess', () => {
+    for (const [x, z] of [[172, 4], [177, 4]]) box(W, x, gG, z, 3.2, 0.85, 1.4, MAT.METAL_DARK);
+    W.pois.mess = { x: 174.5, z: 6 };
+  });
   // Crates for cover
   const crates = [[136, -6], [137.6, -6], [136.8, -6, 2.4], [140, 9], [166, -8], [167.5, -8.3], [189, 0], [189, 1.5], [189, 3], [210, -12], [210, -14.5], [208.5, -13], [132, 24], [133.6, 25], [186, 28], [187.6, 28], [200, -26], [201.4, -27.5], [168, 28], [145, -9]];
   for (const c of crates) {
-    if (c[2]) box(W, c[0], gG + 1.2, c[1], 1.3, 1.1, 1.3, MAT.CRATE);
-    else crate(W, c[0], c[1], gG);
+    const [x, z] = mp(c[0], c[1]);
+    if (c[2]) box(W, x, gG + 1.2, z, 1.3, 1.1, 1.3, MAT.CRATE);
+    else crate(W, x, z, gG);
   }
-  // Floodlights
-  for (const [x, z] of [[130, -12], [130, 12], [165, -10], [165, 12], [196, 26], [196, -4], [210, -24], [150, 32], [145, -12]]) lamp(W, x, z, gG, 5.5, 10, 'flood');
+
+  // ---- the outer ring: cover and shadow between the core and the walls
+  // shipping containers, 2.6 m tall (stacked ones twice that), in rows that leave alleys between them
+  const container = (x, z, len, alongX, stack = 1, mat = MAT.METAL_DARK) => {
+    for (let k = 0; k < stack; k++) box(W, x, gG + k * 2.6, z, alongX ? len : 2.5, 2.6, alongX ? 2.5 : len, k % 2 ? MAT.HULL : mat);
+  };
+  container(213, -42, 10, true, 2);           // north-east yard, behind the command block
+  container(213, -30, 8, true, 1, MAT.HULL);
+  container(222, -36, 5, false, 1);
+  container(165, -38, 8, false, 2);           // between the cell block and the command block
+  container(122, -31, 8, false, 1);           // west yard, either side of the gate road
+  container(122, 31, 8, false, 2, MAT.HULL);
+  container(165, 44, 10, true, 1);            // south yard, between the barracks and the security office
+  container(173, 48.5, 6, true, 1, MAT.HULL);
+  // motor pool: an open shed over two parked haulers in the south-east corner
+  for (const [x, z] of [[194, 36], [212, 36], [194, 46], [212, 46]]) box(W, x, gG, z, 0.4, 4.4, 0.4, MAT.METAL_DARK);
+  box(W, 203, gG + 4.4, 41, 19.4, 0.35, 11.4, MAT.METAL);
+  for (const x of [199, 207]) { box(W, x, gG, 41, 2.4, 1.2, 6.4, MAT.METAL_DARK); box(W, x, gG + 1.2, 39, 2.3, 1.3, 2, MAT.HULL); }
+  // sandbag lines across the open yards: crouch-high cover
+  for (const [x, z, len, alongX] of [[132, -10, 5, false], [134, 12, 5, false], [172, -14, 6, true], [192, 2, 5, false], [188, -50, 6, true], [142, 50, 6, true]]) box(W, x, gG, z, alongX ? len : 0.9, 1.05, alongX ? 0.9 : len, MAT.CLOTH3);
+  // Floodlights over the core and its yards; the outer ring is left dark
+  for (const [x, z] of [[130, -12], [130, 12], [165, -10], [165, 12], [196, 26], [196, -4], [210, -24], [150, 32], [145, -12]]) { const [lx, lz] = mp(x, z); lamp(W, lx, lz, gG, 5.5, 10, 'flood'); }
+  lamp(W, 140, -4, gG, 5.5, 10, 'flood'); // over the courtyard inside the gate
+  W.pois.courtyard = { x: 141, z: 0 };
   lamp(W, X0 - 4, -6, gG, 5, 10, 'flood');
   lamp(W, X0 - 4, 6, gG, 5, 10, 'flood');
-  // Security cameras {x,y,z,yaw,sweep}
+  // Security cameras {x,y,z,yaw,sweep}: the five inside moved out with their buildings
+  const cam = (id, x, z, y, yaw, sweep, speed) => { const [cx, cz] = mp(x, z); return { id, x: cx, y, z: cz, yaw, sweep, speed }; };
+  const c4 = M(202, -33.6);
   W.cameras = [
     { id: 'c0', x: X0 + 1.4, y: gG + 5.2, z: -4.2, yaw: Math.PI / 2 + 0.2, sweep: 0.75, speed: 0.4 }, // gate, looking west
-    { id: 'c1', x: 173.4, y: gG + 5.4, z: -11.4, yaw: Math.PI * 0.5 + 0.55, sweep: 0.9, speed: 0.33 }, // courtyard from command corner
-    { id: 'c2', x: 154, y: gG + 4.4, z: -13.6, yaw: Math.PI, sweep: 0.8, speed: 0.38 }, // cell block door
-    { id: 'c3', x: 194, y: gG + 4.2, z: 21, yaw: -Math.PI / 2 - 0.5, sweep: 0.7, speed: 0.3 }, // depot
-    { id: 'c4', x: 202, y: gG + 5, z: -33.6, yaw: Math.PI - 0.7, sweep: 0.6, speed: 0.35 }, // culvert corner, looking toward culvert
-    { id: 'c5', x: 189.8, y: gG + 5.5, z: -13.4, yaw: -Math.PI / 2 - 0.3, sweep: 0.6, speed: 0.4 }, // vault room
+    cam('c1', 173.4, -11.4, gG + 5.4, Math.PI * 0.5 + 0.55, 0.9, 0.33), // courtyard from command corner
+    cam('c2', 154, -13.6, gG + 4.4, Math.PI, 0.8, 0.38), // cell block door
+    cam('c3', 194, 21, gG + 4.2, -Math.PI / 2 - 0.5, 0.7, 0.3), // depot
+    { id: 'c4', x: c4[0], y: gG + 5, z: c4[1], yaw: yawTo(c4[0], c4[1], X1 - 3, ductZ) - 0.2, sweep: 0.6, speed: 0.35 }, // culvert corner, looking toward the culvert
+    cam('c5', 189.8, -13.4, gG + 5.5, -Math.PI / 2 - 0.3, 0.6, 0.4), // vault room
   ];
 
-  W.regions.command = { minX: 174.5, maxX: 197.5, minZ: -29.5, maxZ: -12.5 };
-  W.pois.gatePanel = { x: 127.6, z: 5 };
-  for (const [x, z, ry] of [[124.3, -8, Math.PI / 2], [124.3, 8, Math.PI / 2], [170, -35.7, 0], [170, 35.7, 0]]) W.decor.push({ type: 'banner', x, y: 13.2, z, ry });
-  W.roster = duskRoster(W);
+  W.pois.gatePanel = { x: X0 + 2.6, z: 5 };
+  for (const [x, z, ry] of [[X0 - 0.7, -8, Math.PI / 2], [X0 - 0.7, 8, Math.PI / 2], [170, Z0 - 0.7, 0], [170, Z1 + 0.7, 0]]) W.decor.push({ type: 'banner', x, y: 13.2, z, ry });
+  W.roster = duskRoster(W, mp);
   shiftWorld(W, gMark, DUSK_SHIFT, 0);
   W.siteShift = { dx: DUSK_SHIFT, dz: 0 };
   // Road patrol between the Spine pass and the gate
-  W.roster.push({ name: 'road-a', road: true, tasks: [T(300, 3, 'scan', [4, 7]), T(214, 8.4, 'look', [4, 7])] });
-  W.roster.push({ name: 'road-b', road: true, offset: 1.4, tasks: [T(300, 4.6, 'idle', [4, 7]), T(214, 10, 'scan', [4, 7])] });
+  W.roster.push({ name: 'road-a', road: true, tasks: [T(284, 3, 'scan', [4, 7]), T(214, 8.4, 'look', [4, 7])] });
+  W.roster.push({ name: 'road-b', road: true, offset: 1.4, tasks: [T(284, 4.6, 'idle', [4, 7]), T(214, 10, 'scan', [4, 7])] });
 
   // Ridge LZ (extraction)
   box(W, 238, 11 - 0.3, 66, 12, 0.5, 12, MAT.CONCRETE);
@@ -592,7 +649,7 @@ function buildLayout(W) {
     W.decor.push({ type: 'rock', x, y, z, s });
   }
   // Guard posts for road patrol
-  W.pois.roadA = { x: 300, z: 3 };
+  W.pois.roadA = { x: 284, z: 3 };
   W.pois.roadB = { x: 214, z: 8.4 };
   // Data the simulation spawns from
   W.npcs.push(
@@ -609,7 +666,9 @@ function buildLayout(W) {
   W.decor.push({ type: 'stringlights', y: 10.2, runs: [[[-176, 46], [-150, 54]], [[-170, 30], [-140, 46]], [[-180, 38], [-132, 38]]] });
 }
 
-function duskRoster(W) {
+// patrols as first authored for the 90 x 70 compound; mp carries each stop out with the building it
+// belongs to, or with the walls
+function duskRoster(W, mp) {
   const towerYaw = (tx, tz) => yawTo(170, 0, tx, tz);
   const roster = [
     { name: 'gate-l', post: true, tasks: [T(121.6, -4.6, 'scan', [5, 9], Math.PI / 2)] },
@@ -624,11 +683,13 @@ function duskRoster(W) {
     { name: 'sec', tasks: [T(180.2, 17.8, 'work', [8, 14], -Math.PI / 2), T(175, 19, 'look', [2, 4])] },
     { name: 'courier', tasks: [T(171.2, -21, 'look', [2, 4]), T(151, 12.5, 'idle', [2, 4]), T(168, 8.5, 'look', [1, 2]), T(186, 9, 'work', [3, 5])] },
   ];
-  W.towers.forEach((t, i) => roster.push({ name: 'tower' + i, post: true, tower: t, tasks: [T(t.x, t.z, 'scan', [4, 8], towerYaw(t.x, t.z) + Math.PI)] }));
   roster.push({
     name: 'rhal', officer: true,
     tasks: [T(171.5, -19, 'look', [4, 6]), T(190.5, 8.5, 'look', [3, 4]), T(174.6, 8, 'talk', [5, 8]), T(151, -11.4, 'look', [3, 4]), T(130, 0, 'scan', [4, 6]), T(140, 12, 'look', [2, 3])],
   });
+  for (const r of roster) for (const t of r.tasks) [t.x, t.z] = mp(t.x, t.z);
+  // the outer patrol walks the new, longer wall line
+  W.towers.forEach((t, i) => roster.push({ name: 'tower' + i, post: true, tower: t, tasks: [T(t.x, t.z, 'scan', [4, 8], towerYaw(t.x, t.z) + Math.PI)] }));
   return roster;
 }
 

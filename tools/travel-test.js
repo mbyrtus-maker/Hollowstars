@@ -21,10 +21,12 @@ for (const id of Object.keys(PLANETS)) {
     if (def.tower) continue; // tower guards stand on the platform
     const a = def.tasks[0];
     if (def.tasks.length === 1 && !findPath(W, a.x + 1.5, a.z, a.x, a.z)) bad.push(`${def.name}@${a.x},${a.z} unreachable`);
-    for (const t of def.tasks.slice(1)) {
-      const path = findPath(W, a.x, a.z, t.x, t.z);
-      if (!path) bad.push(`${def.name}: no path ${a.x},${a.z} -> ${t.x},${t.z}`);
-    }
+    // each leg of the patrol, as the guard walks it
+    def.tasks.forEach((t, i) => {
+      if (i === 0) return;
+      const f = def.tasks[i - 1];
+      if (!findPath(W, f.x, f.z, t.x, t.z)) bad.push(`${def.name}: no path ${f.x},${f.z} -> ${t.x},${t.z}`);
+    });
   }
   check(bad.length === 0, `${id}: every guard waypoint is walkable and reachable${bad.length ? ' — ' + bad.slice(0, 6).join('; ') : ''}`);
     if (id !== 'duskvaro') {
