@@ -13,7 +13,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 export class HUD {
   constructor() {
     this.el = {};
-    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body', 'num-pk', 'num-cap', 'heat-banner', 'lv-badge', 'bar-xp', 'career-btn', 'xp-pops']) this.el[id] = $(id);
+    for (const id of ['hud', 'vignette', 'dmg-dirs', 'markers', 'bubbles', 'compass-strip', 'compass-marks', 'party', 'alarm-banner', 'cam-banner', 'mission-box', 'crosshair', 'hitmark', 'detect', 'prompt', 'prompt-text', 'prompt-ring', 'notes', 'big-msg', 'bar-hp', 'bar-sh', 'num-hp', 'bar-fo', 'num-fo', 'stealth', 'vis-label', 'eye', 'cover-s', 'num-cr', 'slot-main', 'bar-heat', 'wpn-name', 'cls-name', 'heat-wrap', 'blade-ic', 'lbl-gr', 'lbl-md', 'powers', 'row-focus', 'wanted', 'num-gr', 'num-md', 'chat-log', 'chat-in', 'downed', 'dn-timer', 'speedo', 'spd-num', 'modal', 'modal-body', 'num-pk', 'num-cap', 'heat-banner', 'lv-badge', 'bar-xp', 'career-btn', 'xp-pops']) this.el[id] = $(id);
     this.markerPool = [];
     this.bubblePool = [];
     this.detPool = [];
@@ -163,6 +163,12 @@ export class HUD {
     s.classList.toggle('hidden-s', vis < 0.45 && !lp.vehicle);
     s.classList.toggle('exposed-s', vis >= 1.3 || !!lp.vehicle);
     this.el.eye.querySelector('circle').setAttribute('r', String(2 + clamp(vis, 0, 1.6) * 3));
+    // cover: 1 next to cover, 2 covered from the nearest guard hunting you, 3 flushed by a blast, 4 they have the angle
+    const cv = pv.cv || 0, cs = this.el['cover-s'];
+    cs.classList.toggle('hidden', cv === 0);
+    cs.classList.toggle('in', cv === 2);
+    cs.classList.toggle('flush', cv === 3 || cv === 4);
+    cs.textContent = cv === 3 ? 'Flushed!' : cv === 4 ? (lp.crouch ? 'Flanked' : 'Get down') : cv === 2 ? 'In cover' : 'Cover';
     // crosshair
     const ch = this.el.crosshair;
     ch.classList.toggle('blade', lp.weapon === 'blade');

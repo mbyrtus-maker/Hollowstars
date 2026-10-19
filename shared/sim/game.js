@@ -1,12 +1,13 @@
 // Authoritative game room. Runs identically on the Node server (multiplayer) and in
 // the browser (solo/offline). Transport-agnostic: give it a send(clientId, string).
 
-import { K, F, PLAYER, WEAPONS, POWERS, STEALTH, ITEMS, MERCHANTS, MAX_PLAYERS, START_CREDITS, TICK_DT, MISSIONS, CLASSES } from '../config.js';
+import { K, F, PLAYER, WEAPONS, POWERS, STEALTH, ITEMS, MERCHANTS, MAX_PLAYERS, START_CREDITS, TICK_DT, MISSIONS, CLASSES, COVER } from '../config.js';
 import { mulberry32, clamp, dist2, angleDiff, yawTo, lerp } from '../math.js';
 import { createWorld, terrainHeight, setDoorOpen, inShadow, lampLight, groundAt, useWorld, lineOfSight } from '../world.js';
 import '../layouts.js';
 import { stepSpeeder, SPEEDER } from '../vehicles.js';
 import { spawnGuard, garrisonRoster, spawnTown, spawnWildlife, spawnPrisoner, spawnCaptives, updateNPC, updateHerds, guardHearNoise, civilianScare, guardOnDamaged, alertGuardTo, isUnaware, pick } from './ai.js';
+import { inCover, playerCoverState, releaseCover } from './cover.js';
 import { stepBolts, stepGrenades, explode, bladeSwing, powerPush, powerPull } from './combat.js';
 import { spawnWorkers } from './ai.js';
 import { spawnTraffic, spawnVehicle, updateTraffic } from './traffic.js';
@@ -609,6 +610,8 @@ export class Game {
 
   damage(e, amt, src, info = {}) {
     if (e.dead || amt <= 0) return;
+    // bolts that find someone tucked into cover only graze them
+    if (info.kind === 'bolt' && src && (e.kind === K.PLAYER || e.ai) && inCover(this, e, src)) amt *= COVER.damage;
     if (src && src.kind === K.PLAYER && src.gear && WEAPON_KINDS.has(info.kind) && !info.deflected) amt *= gearBonus.damage(src.gear.weapon);
     if (src && src.kind === K.PLAYER) {
       const SC = classOf(src);
@@ -674,6 +677,7 @@ export class Game {
 
   kill(e, src, info) {
     e.dead = true;
+    if (e.ai) releaseCover(this, e);
     e.hp = 0;
     e.flags = F.DEAD;
     e.deadAt = this.time;
@@ -1281,6 +1285,7 @@ export class Game {
       if (active(this, p, 'disguise') && !this.nearby(p.x, p.z, 4).some((e) => e.hostile && !e.dead && e.kind !== K.CAMERA)) vis *= 0.06;
       if (p.vehicle) vis = 1.6;
       p.visibility = clamp(vis, 0.05, 2);
+      if (this.tickN % 3 === 0) p.coverState = playerCoverState(this, p);
       p.lit = light;
       // Walking/sprinting makes a little noise
       if (!p.crouch && spd > 7.5 && this.tickN % 6 === 0) this.noise(p.x, p.y, p.z, 7, p, false);
@@ -1435,7 +1440,7 @@ export class Game {
       const lvl = levelOf(p.xp || 0);
       const pv = {
         hp: Math.round(p.hp), sh: Math.round(p.shield), shm: p.upgrades.shield ? 50 : 0, fo: Math.round(p.focus), ht: r2(p.heat), oh: p.overheated ? 1 : 0,
-        gr: p.grenades, md: p.medpacks, cr: p.credits, up: Object.keys(p.upgrades), dn: p.downed ? 1 : 0, bt: r2(p.bleed), vis: r2(p.visibility),
+        gr: p.grenades, md: p.medpacks, cr: p.credits, up: Object.keys(p.upgrades), dn: p.downed ? 1 : 0, bt: r2(p.bleed), vis: r2(p.visibility), cv: p.coverState || 0,
         ia: p.interact ? [p.interact.id, p.interact.label, p.interact.hold, p.use && p.use.id === p.interact.id ? r2(p.use.prog / p.use.need) : 0] : null,
         veh: p.vehicle || 0, ab0: p.aboard ? 1 : 0, shr: this.time < p.shroudUntil ? r2(p.shroudUntil - this.time) : 0,
         cd: [r2(Math.max(0, p.cd.push - this.time)), r2(Math.max(0, p.cd.pull - this.time)), r2(Math.max(0, p.cd.shroud - this.time))],

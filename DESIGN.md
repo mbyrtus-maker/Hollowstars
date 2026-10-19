@@ -96,6 +96,7 @@ Planned:
   - Body discovery.
   - The alarm-runner rule: a spotted guard needs a few seconds to raise the alarm, so it can be stopped.
   - Silent takedowns, pickpocketing, crawlspaces, terminal slicing, and a ghost bonus for clean runs.
+  - Cover (shared/sim/cover.js): something solid within 1.5 m on the line to the shooter, at crouched or standing chest height. Bolts that hit someone in cover do half damage, and shots at them get extra spread. Guards in a firefight claim waist-high cover near them, duck and pop up to shoot over it, and give it up when flanked or rushed. Blasts reach over low cover at reduced damage and flush everyone near them out of cover for 3.5 s; flushed guards scatter away from the blast.
 - **Planned.**
   - Dragging and hiding bodies.
   - Disguises: wear Lancer armour, and guards get suspicious only up close.

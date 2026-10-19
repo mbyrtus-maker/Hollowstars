@@ -4,6 +4,7 @@ import { K, WEAPONS, POWERS, F, effectiveClass } from '../config.js';
 import { clamp, angleDiff, yawTo, segVsVertical, dist2, dirFromYawPitch } from '../math.js';
 import { raycast, lineOfSight, terrainHeight, queryBoxes } from '../world.js';
 import { isUnaware } from './ai.js';
+import { flushAround } from './cover.js';
 
 const HIT_R = { [K.CRITTER]: 0.6, [K.SPEEDER]: 1.3, [K.CAMERA]: 0.42, [K.PICKUP]: 0, [K.TRAFFIC]: 1.2 };
 
@@ -213,15 +214,21 @@ export function stepGrenades(game, dt) {
 export function explode(game, x, y, z, radius, dmg, src, cause, spare) {
   game.event(['boom', +x.toFixed(2), +y.toFixed(2), +z.toFixed(2), radius]);
   game.noise(x, y, z, WEAPONS.grenade.noise, src && src.kind === K.PLAYER ? src : null, true);
+  flushAround(game, x, z, radius);
   for (const e of [...game.ents.values()]) {
     if (e === spare) continue;
     if (!hittable(e) || e.kind === K.CAMERA && dist2(x, z, e.x, e.z) > radius) continue;
     const cy = e.y + 0.9;
     const d = Math.hypot(e.x - x, cy - y, e.z - z);
     if (d > radius) continue;
-    if (!lineOfSight(game.world, x, y + 0.3, z, e.x, cy, e.z, { terrain: false }) && d > 2) continue;
+    // a blast rolls over low cover: hidden from the burst, but not from what comes over the top
+    let shield = 1;
+    if (!lineOfSight(game.world, x, y + 0.3, z, e.x, cy, e.z, { terrain: false }) && d > 2) {
+      if (!lineOfSight(game.world, x, y + 0.3, z, e.x, e.y + 2.6, e.z, { terrain: false })) continue;
+      shield = 0.6;
+    }
     const f = Math.pow(1 - d / radius, 0.75);
-    let amt = dmg * f;
+    let amt = dmg * f * shield;
     if (e.kind === K.PLAYER && src && src.kind === K.PLAYER) amt *= e.id === src.id ? 0.5 : 0.35;
     game.damage(e, amt, src, { kind: 'explosion', x, y, z });
     // knockback

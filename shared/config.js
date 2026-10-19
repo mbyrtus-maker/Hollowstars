@@ -304,6 +304,17 @@ export const POWERS = {
   cloak: { visibility: 0.06 },
 };
 
+// Cover: anything solid you're tucked against blocks the line to the shooter at body height
+export const COVER = {
+  reach: 1.5,       // how far from your body the cover may be (m)
+  lowBody: 0.85,    // probe height when crouched (m above the feet)
+  highBody: 1.35,   // probe height when standing (behind walls, stacked crates, tanks)
+  damage: 0.5,      // bolts that still find you in cover hit for half
+  spread: 0.05,     // extra aim spread for anyone shooting at someone in cover
+  flush: 3.5,       // seconds a blast denies cover after it goes off
+  flushRange: 1.3,  // blasts flush people out to this multiple of their damage radius
+};
+
 export const STEALTH = {
   visionRange: 34,
   alertVisionRange: 52,
@@ -411,5 +422,5 @@ export const K = {
 // Entity flag bits in snapshots
 export const F = {
   CROUCH: 1, BLOCK: 2, BLADE: 4, DEAD: 8, DOWNED: 16, DRIVING: 32, STAGGER: 64,
-  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072, ABOARD: 262144, MARKED: 524288, DISGUISE: 1048576, STOLEN: 2097152, MILITIA: 4194304, DROID: 8388608,
+  SPRINT: 128, TALK: 256, SHROUD: 512, AIM: 1024, WORK: 2048, AIR: 4096, OFF: 8192, ALERT: 16384, FLEE: 32768, SHIELD: 65536, DRAWN: 131072, ABOARD: 262144, MARKED: 524288, DISGUISE: 1048576, STOLEN: 2097152, MILITIA: 4194304, DROID: 8388608, COVER: 16777216,
 };

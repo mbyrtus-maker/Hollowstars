@@ -69,6 +69,8 @@ A 4-player co-op space-opera action game for the browser. This is the first play
   - What a guard notices depends on crouching, sprinting, floodlights versus shadow, and noise.
   - Security cameras watch key areas, and guards react when they find a body.
   - Once a guard spots you, they run for the alarm after a few seconds. Kill them first and nobody knows.
+- **Cover.** Get something solid between you and the shooter: crouch behind sandbags and crates, or stand behind a wall or container. Bolts that still reach you hit for half and come in wide. The badge beside the eye says when you're in cover, and when a guard has flanked you. Guards use cover too: they run for the nearest sandbag line, duck, and pop up to shoot.
+- **Grenades flush cover.** A blast reaches over low cover, and for a few seconds afterwards nobody near it gets anything from cover. Guards caught by one scatter.
 - **Alarms.** Lockdown seals the gate, reinforcements pour out of the barracks, and the whole base hunts you. Slice the security terminal to loop the cameras or silence the alarm. Topple the comms mast to stop reinforcements.
 - **An AI that's always busy.**
   - Guards patrol, stand watch in towers, chat at the mess tables, work the fuel depot and run errands.
@@ -154,6 +156,7 @@ On a speeder: W/S for throttle, steer with the mouse (or A/D), Shift to boost, S
 - The east wall has a drainage culvert you can crawl through.
 - Slicing the security office terminal loops the cameras for two minutes.
 - Sneak up behind Commander Rhal and hold E to lift his keycard. Pulling him (F) can also knock it loose.
+- Guards dug in behind sandbags only come up to shoot. Lob a grenade behind them, or go round the side.
 - Fuel tanks chain-explode. Stand back.
 - A Sniper who stays still and crouched almost vanishes. Sweep a garrison with Recon before the crew goes in.
 

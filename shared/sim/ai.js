@@ -1,12 +1,14 @@
 // NPC behaviour: Concordance guards (stealth perception, combat, alarms), townsfolk,
 // merchants, the prisoner, and desert wildlife. Everything is always doing something.
 
-import { K, F, STEALTH, WEAPONS } from '../config.js';
+import { K, F, STEALTH, WEAPONS, COVER } from '../config.js';
 import { clamp, angleDiff, yawTo, dist2, lerpAngle, wrapAngle } from '../math.js';
 import { findPath, moveBody, lineOfSight, terrainHeight } from '../world.js';
 import { classOf } from './classes.js';
+import { findCoverSpot, releaseCover, coverFrom, inCover, flushed } from './cover.js';
 
 const BARKS = {
+  cover: ['Taking cover!', 'Get down!', 'Behind the crates!', 'Covering!', 'Keep your head down!'],
   suspicious: ['Hm? Something moved.', 'Who\'s there?', 'Did you hear that?', 'Hold on...', 'Show yourself.'],
   investigate: ['Checking it out.', 'Going to take a look.', 'Probably a skitter. Probably.'],
   calm: ['Must be the wind.', 'Nothing. Back to it.', 'Jumping at shadows again.', 'All clear.'],
@@ -187,7 +189,8 @@ function brake(game, e, dt) {
 
 // ------------------------------------------------------------------ perception
 
-function eye(e) { return e.y + (e.kind === K.CAMERA ? 0 : 1.62); }
+// a guard ducked behind cover can't see over it any more than you can
+function eye(e) { return e.y + (e.kind === K.CAMERA ? 0 : e.crouch ? 1.0 : 1.62); }
 
 function bestStimulus(game, e, isCamera) {
   const ai = e.ai;
@@ -304,6 +307,7 @@ function guardShoot(game, e, p, dt) {
   dx /= l; dy /= l; dz /= l;
   const moveSpd = Math.hypot(p.vx || 0, p.vz || 0);
   let spread = 0.03 + clamp(d / 40, 0, 1) * 0.05 + clamp(moveSpd / 9, 0, 1) * 0.045 + (p.crouch ? -0.01 : 0);
+  if (inCover(game, p, e)) spread += COVER.spread; // only a sliver of them to aim at
   if (e.kind === K.OFFICER) spread *= 0.65;
   if (ai.tower) spread *= 1.2;
   if (game.time - ai.combatStart < 0.6) spread *= 1.6; // first shots are panicky
@@ -330,6 +334,7 @@ function updateGuard(game, e, dt) {
   const ai = e.ai;
   ai.repathCD = (ai.repathCD || 0) - dt;
   e.flags = 0;
+  e.crouch = false;
   if (ai.pendingAlert && game.time >= ai.pendingAlert.at) {
     const pa = ai.pendingAlert; ai.pendingAlert = null;
     if (ai.state !== 'combat') {
@@ -429,6 +434,9 @@ function updateGuard(game, e, dt) {
     }
   }
   if (ai.state === 'combat') e.flags |= F.ALERT | F.AIM;
+  else if (ai.cover) releaseCover(game, e);
+  if (e.crouch) e.flags |= F.CROUCH;
+  if (ai.cover) e.flags |= F.COVER;
   e.a1 = Math.round(ai.sus * 100);
   e.a2 = (ai.state === 'combat' ? 2 : ai.state === 'routine' ? 0 : 1);
 }
@@ -470,10 +478,24 @@ function combat(game, e, dt, run) {
   let p = game.ents.get(ai.target);
   if (p && (p.dead || p.downed || p.kind !== K.PLAYER)) p = null;
   const sees = p && game.time - ai.lastSeen < 0.25;
+  const mobile = !ai.tower && !ai.post;
+  // a blast just went off by us: get clear of it before anything else
+  if (mobile && ai.flushFrom && flushed(game, e) && game.time < e.flushedUntil - COVER.flush + 1.4) {
+    let ux = e.x - ai.flushFrom.x, uz = e.z - ai.flushFrom.z;
+    const l = Math.hypot(ux, uz);
+    if (l < 0.1) { ux = Math.sin(e.yaw); uz = Math.cos(e.yaw); } else { ux /= l; uz /= l; }
+    const a = Math.min(1, dt * 8);
+    e.vx += (ux * run - e.vx) * a; e.vz += (uz * run - e.vz) * a;
+    moveBody(game.world, e, dt);
+    faceToward(e, yawTo(0, 0, e.vx, e.vz), dt, 8);
+    e.moving = true;
+    return;
+  }
   if (sees) {
     faceToward(e, yawTo(e.x, e.z, p.x, p.z), dt, 9);
     const d = dist2(e.x, e.z, p.x, p.z);
-    if (!ai.tower && !ai.post) {
+    if (mobile && useCover(game, e, p, d, dt, run)) return;
+    if (mobile) {
       ai.strafeT -= dt;
       if (ai.strafeT <= 0) { ai.strafe = game.rng() < 0.5 ? -1 : 1; ai.strafeT = 1.2 + game.rng() * 2; if (game.rng() < 0.3) ai.strafe = 0; }
       const fx = Math.sin(-e.yaw) , fz = -Math.cos(e.yaw);
@@ -494,7 +516,12 @@ function combat(game, e, dt, run) {
   }
   // No sight: chase last known position
   const lkp = ai.lkp;
-  if (!lkp) { ai.state = 'search'; ai.search = { x: e.x, z: e.z, until: game.time + 10 }; return; }
+  if (!lkp) { releaseCover(game, e); ai.state = 'search'; ai.search = { x: e.x, z: e.z, until: game.time + 10 }; return; }
+  // dug in: keep ducking and peeking for a while before giving the position up
+  if (ai.cover && game.time - ai.lastSeen < 5 && !flushed(game, e)) {
+    if (goToCover(game, e, lkp, null, dt, run)) return;
+  }
+  if (ai.cover) releaseCover(game, e);
   if (ai.tower || ai.post) {
     brake(game, e, dt);
     faceToward(e, yawTo(e.x, e.z, lkp.x, lkp.z), dt, 3);
@@ -508,6 +535,63 @@ function combat(game, e, dt, run) {
     ai.search = { x: lkp.x, z: lkp.z, until: game.time + (game.alarm.active ? 20 : 14) };
     game.bark(e, pick(BARKS.search, game.rng));
   }
+}
+
+// Guards in a firefight look for something waist-high to get behind, run to it, then duck and pop up
+// to shoot over it. They give it up when they're flanked, when the target gets close, or when a
+// blast flushes them out.
+function useCover(game, e, p, d, dt, run) {
+  const ai = e.ai;
+  if (flushed(game, e) || game.time < (ai.coverBan || 0) || d < 5 || e.vehicle) { releaseCover(game, e); return false; }
+  let c = ai.cover;
+  if (c) {
+    ai.coverCheck = (ai.coverCheck || 0) - dt;
+    if (ai.coverCheck <= 0) {
+      ai.coverCheck = 0.8;
+      // flanked: the cover no longer sits between us
+      if (!coverFrom(game.world, c.x, e.y, c.z, p.x, p.z, !c.tall)) { releaseCover(game, e); c = null; ai.coverRetry = game.time + 0.6; }
+    }
+  }
+  if (!c) {
+    if (game.time < (ai.coverRetry || 0)) return false;
+    ai.coverRetry = game.time + 2 + game.rng() * 1.2;
+    c = ai.cover = findCoverSpot(game, e, p);
+    if (!c) return false;
+    c.since = game.time;
+    ai.coverCheck = 0.8;
+    if (game.rng() < 0.4) game.bark(e, pick(BARKS.cover, game.rng));
+  }
+  return goToCover(game, e, p, p, dt, run);
+}
+// Run to the claimed spot, then hold it: duck and pop up over low cover, or wait behind tall cover
+// and step out to shoot. `at` is where to look; `target` is who to shoot when up (null: just peek).
+function goToCover(game, e, at, target, dt, run) {
+  const ai = e.ai, c = ai.cover;
+  const dc = dist2(e.x, e.z, c.x, c.z);
+  if (c.arrived && dc > 2.5) c.arrived = false; // shoved off it
+  if (!c.arrived) {
+    if (dc < 0.55) c.arrived = true;
+    else {
+      if (game.time - c.since > 7 || (ai.stuckCount || 0) > 3) { releaseCover(game, e); ai.coverRetry = game.time + 3; ai.stuckCount = 0; return false; }
+      moveTo(game, e, c.x, c.z, run, dt, 0.4);
+      return true;
+    }
+  }
+  c.t = (c.t ?? 0.3 + game.rng() * 0.5) - dt;
+  if (c.t <= 0) { c.hide = !c.hide; c.t = c.hide ? 1 + game.rng() * 1.6 : 1.3 + game.rng() * 1.0; }
+  const up = !c.hide;
+  if (c.peek) {
+    // tall cover: hide behind it, step out to the peek spot to shoot
+    const to = up ? c.peek : c;
+    if (dist2(e.x, e.z, to.x, to.z) > 0.25) { moveTo(game, e, to.x, to.z, 3.4, dt, 0.2); if (!up) return true; }
+    else brake(game, e, dt);
+  } else {
+    brake(game, e, dt);
+    e.crouch = !up;
+  }
+  faceToward(e, yawTo(e.x, e.z, at.x, at.z), dt, 9);
+  if (up && target && game.time - ai.combatStart > 0.35 && (!c.peek || dist2(e.x, e.z, c.peek.x, c.peek.z) < 0.4)) guardShoot(game, e, target, dt);
+  return true;
 }
 
 // ------------------------------------------------------------------ cameras
@@ -732,6 +816,7 @@ function updatePrisoner(game, e, dt) {
   const ai = e.ai;
   ai.repathCD = (ai.repathCD || 0) - dt;
   e.flags = 0;
+  e.crouch = false;
   if (ai.state === 'caged') {
     e.flags |= F.CROUCH;
     brake(game, e, dt);
